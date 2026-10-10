@@ -1,0 +1,3070 @@
+{
+  "version": 1,
+  "input": "-- 基于大语言模型的算法题智能辅导系统 · 数据库设计(MySQL 8.0)\n-- 由 GraduateStudio AI 架构师生成并通过用户确认\n\n-- 存储学生与教师账号、个人资料及学习偏好。\nCREATE TABLE users (\n  id BIGINT PRIMARY KEY COMMENT '用户主键',\n  username VARCHAR(64) UNIQUE NOT NULL COMMENT '登录用户名',\n  email VARCHAR(255) UNIQUE COMMENT '登录邮箱',\n  password_hash VARCHAR(255) NOT NULL COMMENT 'BCrypt 密码摘要',\n  display_name VARCHAR(100) NOT NULL COMMENT '显示名称',\n  avatar_url VARCHAR(500) COMMENT '头像地址',\n  target_difficulty VARCHAR(20) NOT NULL COMMENT '目标练习难度',\n  daily_practice_count INT NOT NULL COMMENT '每日练习目标数量',\n  status VARCHAR(20) NOT NULL COMMENT '账号状态',\n  last_login_at DATETIME COMMENT '最近登录时间',\n  created_at DATETIME NOT NULL COMMENT '创建时间',\n  updated_at DATETIME NOT NULL COMMENT '更新时间'\n) COMMENT '存储学生与教师账号、个人资料及学习偏好。';\n\n-- 定义学生、教师等系统角色。\nCREATE TABLE roles (\n  id BIGINT PRIMARY KEY COMMENT '角色主键',\n  code VARCHAR(50) UNIQUE NOT NULL COMMENT '角色编码，如 student、teacher',\n  name VARCHAR(100) NOT NULL COMMENT '角色名称',\n  description VARCHAR(255) COMMENT '角色说明',\n  created_at DATETIME NOT NULL COMMENT '创建时间',\n  updated_at DATETIME NOT NULL COMMENT '更新时间'\n) COMMENT '定义学生、教师等系统角色。';\n\n-- 定义后端接口和管理操作对应的权限点。\nCREATE TABLE permissions (\n  id BIGINT PRIMARY KEY COMMENT '权限主键',\n  code VARCHAR(100) UNIQUE NOT NULL COMMENT '权限编码',\n  module VARCHAR(100) NOT NULL COMMENT '所属模块',\n  action VARCHAR(20) NOT NULL COMMENT '操作类型，如 list、create、audit',\n  description VARCHAR(255) COMMENT '权限说明',\n  created_at DATETIME NOT NULL COMMENT '创建时间',\n  updated_at DATETIME NOT NULL COMMENT '更新时间'\n) COMMENT '定义后端接口和管理操作对应的权限点。';\n\n-- 关联用户与角色，支持一个用户拥有多个角色。\nCREATE TABLE user_roles (\n  id BIGINT PRIMARY KEY COMMENT '关联主键',\n  user_id BIGINT NOT NULL COMMENT '用户 ID',\n  role_id BIGINT NOT NULL COMMENT '角色 ID',\n  created_at DATETIME NOT NULL COMMENT '创建时间',\n  updated_at DATETIME NOT NULL COMMENT '更新时间'\n) COMMENT '关联用户与角色，支持一个用户拥有多个角色。';\n\n-- 关联角色与权限点以实施服务端 RBAC 授权。\nCREATE TABLE role_permissions (\n  id BIGINT PRIMARY KEY COMMENT '关联主键',\n  role_id BIGINT NOT NULL COMMENT '角色 ID',\n  permission_id BIGINT NOT NULL COMMENT '权限 ID',\n  created_at DATETIME NOT NULL COMMENT '创建时间',\n  updated_at DATETIME NOT NULL COMMENT '更新时间'\n) COMMENT '关联角色与权限点以实施服务端 RBAC 授权。';\n\n-- 记录登录、题目发布、批改触发和审核等关键操作。\nCREATE TABLE audit_logs (\n  id BIGINT PRIMARY KEY COMMENT '日志主键',\n  user_id BIGINT COMMENT '操作用户 ID',\n  module VARCHAR(100) NOT NULL COMMENT '操作模块',\n  action VARCHAR(50) NOT NULL COMMENT '操作类型',\n  target_type VARCHAR(100) COMMENT '操作目标类型',\n  target_id BIGINT COMMENT '操作目标 ID',\n  detail JSON COMMENT '操作详情',\n  ip_address VARCHAR(45) COMMENT '客户端 IP',\n  created_at DATETIME NOT NULL COMMENT '创建时间',\n  updated_at DATETIME NOT NULL COMMENT '更新时间'\n) COMMENT '记录登录、题目发布、批改触发和审核等关键操作。';\n\n-- 存储课程知识点及其层级、难度等基础信息。\nCREATE TABLE knowledge_points (\n  id BIGINT PRIMARY KEY COMMENT '知识点主键',\n  parent_id BIGINT COMMENT '父知识点 ID',\n  code VARCHAR(64) UNIQUE NOT NULL COMMENT '知识点编码',\n  name VARCHAR(128) NOT NULL COMMENT '知识点名称',\n  description TEXT COMMENT '知识点说明',\n  difficulty_level TINYINT NOT NULL COMMENT '知识点难度等级',\n  status VARCHAR(20) NOT NULL COMMENT '知识点状态',\n  created_at DATETIME NOT NULL COMMENT '创建时间',\n  updated_at DATETIME NOT NULL COMMENT '更新时间'\n) COMMENT '存储课程知识点及其层级、难度等基础信息。';\n\n-- 维护知识点之间的先修或相关关系以支持图谱推荐。\nCREATE TABLE knowledge_relations (\n  id BIGINT PRIMARY KEY COMMENT '关系主键',\n  source_knowledge_point_id BIGINT NOT NULL COMMENT '起点知识点 ID',\n  target_knowledge_point_id BIGINT NOT NULL COMMENT '终点知识点 ID',\n  relation_type VARCHAR(30) NOT NULL COMMENT '关系类型，如 prerequisite、related',\n  created_at DATETIME NOT NULL COMMENT '创建时间',\n  updated_at DATETIME NOT NULL COMMENT '更新时间'\n) COMMENT '维护知识点之间的先修或相关关系以支持图谱推荐。';\n\n-- 保存正式题目与审核发布后的变式题内容。\nCREATE TABLE problems (\n  id BIGINT PRIMARY KEY COMMENT '题目主键',\n  source_problem_id BIGINT COMMENT '生成变式题所依据的题目 ID',\n  created_by_user_id BIGINT COMMENT '创建者或生成任务发起人 ID',\n  title VARCHAR(255) NOT NULL COMMENT '题目标题',\n  statement LONGTEXT NOT NULL COMMENT '题面内容',\n  input_description TEXT COMMENT '输入说明',\n  output_description TEXT COMMENT '输出说明',\n  constraints_text TEXT COMMENT '数据范围与约束',\n  difficulty VARCHAR(20) NOT NULL COMMENT '题目难度',\n  time_limit_ms INT NOT NULL COMMENT '执行时间限制毫秒数',\n  memory_limit_mb INT NOT NULL COMMENT '内存限制 MB',\n  reference_solution LONGTEXT COMMENT '参考题解或代码',\n  solution_explanation LONGTEXT COMMENT '静态题解说明及降级展示内容',\n  status VARCHAR(20) NOT NULL COMMENT '题目状态，如 draft、pending、published、rejected',\n  origin_type VARCHAR(20) NOT NULL COMMENT '题目来源，如 manual、generated、imported',\n  published_at DATETIME COMMENT '发布时间，未发布为空值表示未发布状态。字段实际允许为空。 '\n) COMMENT '保存正式题目与审核发布后的变式题内容。';\n\n-- 外键关系\nALTER TABLE user_roles ADD FOREIGN KEY (user_id) REFERENCES users(id);\nALTER TABLE user_roles ADD FOREIGN KEY (role_id) REFERENCES roles(id);\nALTER TABLE role_permissions ADD FOREIGN KEY (role_id) REFERENCES roles(id);\nALTER TABLE role_permissions ADD FOREIGN KEY (permission_id) REFERENCES permissions(id);\nALTER TABLE audit_logs ADD FOREIGN KEY (user_id) REFERENCES users(id);\nALTER TABLE knowledge_points ADD FOREIGN KEY (parent_id) REFERENCES knowledge_points(id);\nALTER TABLE knowledge_relations ADD FOREIGN KEY (source_knowledge_point_id) REFERENCES knowledge_points(id);\nALTER TABLE knowledge_relations ADD FOREIGN KEY (target_knowledge_point_id) REFERENCES knowledge_points(id);\nALTER TABLE problems ADD FOREIGN KEY (source_problem_id) REFERENCES problems(id);\nALTER TABLE problems ADD FOREIGN KEY (created_by_user_id) REFERENCES users(id);",
+  "format": "sql",
+  "settings": {
+    "colored": true,
+    "comment": true,
+    "hideAttrs": false,
+    "fontScale": 1,
+    "attrMode": "moderate",
+    "autoAvoid": true
+  },
+  "nodes": [
+    {
+      "id": "entity-users-0",
+      "type": "entity",
+      "nodeType": "entity",
+      "label": "USER（用户）",
+      "nameLabel": "users",
+      "commentLabel": "存储学生与教师账号、个人资料及学习偏好。",
+      "manualLabel": "USER（用户）",
+      "x": 2310.344165988484,
+      "y": 1886.725900522528,
+      "style": {
+        "fill": "#e0f2fe",
+        "stroke": "#0ea5e9",
+        "shadowColor": "rgba(14, 165, 233, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 10
+      },
+      "labelCfg": {
+        "style": { "fill": "#0f172a", "fontSize": 18, "fontWeight": "700", "fontFamily": "Poppins" }
+      }
+    },
+    {
+      "id": "attr-users-id-0-0",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "用户主键",
+      "nameLabel": "id",
+      "commentLabel": "用户主键",
+      "parentEntity": "entity-users-0",
+      "x": 2553.6169798856727,
+      "y": 1862.1464279126276,
+      "keyType": "pk",
+      "style": {
+        "fill": "#ecfdf5",
+        "stroke": "#10b981",
+        "shadowColor": "rgba(16, 185, 129, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 5
+      },
+      "labelCfg": {
+        "style": { "fill": "#0f172a", "fontSize": 15, "fontWeight": "700", "fontFamily": "Poppins" }
+      }
+    },
+    {
+      "id": "attr-users-username-0-1",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "登录用户名",
+      "nameLabel": "username",
+      "commentLabel": "登录用户名",
+      "parentEntity": "entity-users-0",
+      "x": 2537.0008638703325,
+      "y": 1978.4458752310582,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-users-email-0-2",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "登录邮箱",
+      "nameLabel": "email",
+      "commentLabel": "登录邮箱",
+      "parentEntity": "entity-users-0",
+      "x": 2468.060662631414,
+      "y": 2073.5716099779975,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-users-password_hash-0-3",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "BCrypt 密码摘要",
+      "nameLabel": "password_hash",
+      "commentLabel": "BCrypt 密码摘要",
+      "parentEntity": "entity-users-0",
+      "x": 2200.345317810968,
+      "y": 2105.0972948370236,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-users-display_name-0-4",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "显示名称",
+      "nameLabel": "display_name",
+      "commentLabel": "显示名称",
+      "parentEntity": "entity-users-0",
+      "x": 2097.7314433438896,
+      "y": 2007.4803730065314,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-users-avatar_url-0-5",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "头像地址",
+      "nameLabel": "avatar_url",
+      "commentLabel": "头像地址",
+      "parentEntity": "entity-users-0",
+      "x": 2066.3140464920757,
+      "y": 1902.0593030740145,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-users-target_difficulty-0-6",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "目标练习难度",
+      "nameLabel": "target_difficulty",
+      "commentLabel": "目标练习难度",
+      "parentEntity": "entity-users-0",
+      "x": 2213.302211548116,
+      "y": 1662.296242202531,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-users-daily_practice_count-0-7",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "每日练习目标数量",
+      "nameLabel": "daily_practice_count",
+      "commentLabel": "每日练习目标数量",
+      "parentEntity": "entity-users-0",
+      "x": 2089.4730408599826,
+      "y": 1781.8366325314364,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-users-status-0-8",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "账号状态",
+      "nameLabel": "status",
+      "commentLabel": "账号状态",
+      "parentEntity": "entity-users-0",
+      "x": 2336.8908909811294,
+      "y": 1643.6598933405241,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-users-last_login_at-0-9",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "最近登录时间",
+      "nameLabel": "last_login_at",
+      "commentLabel": "最近登录时间",
+      "parentEntity": "entity-users-0",
+      "x": 2377.3157281358576,
+      "y": 2121.8867440292174,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-users-created_at-0-10",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "创建时间",
+      "nameLabel": "created_at",
+      "commentLabel": "创建时间",
+      "parentEntity": "entity-users-0",
+      "x": 2440.754544728071,
+      "y": 1679.8951833351755,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-users-updated_at-0-11",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "更新时间",
+      "nameLabel": "updated_at",
+      "commentLabel": "更新时间",
+      "parentEntity": "entity-users-0",
+      "x": 2518.2231239238918,
+      "y": 1757.9930325247783,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "entity-roles-1",
+      "type": "entity",
+      "nodeType": "entity",
+      "label": "ROLE（角色）",
+      "nameLabel": "roles",
+      "commentLabel": "定义学生、教师等系统角色。",
+      "manualLabel": "ROLE（角色）",
+      "x": 1453.9650971341632,
+      "y": 992.2221957266954,
+      "style": {
+        "fill": "#e0f2fe",
+        "stroke": "#0ea5e9",
+        "shadowColor": "rgba(14, 165, 233, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 10
+      },
+      "labelCfg": {
+        "style": { "fill": "#0f172a", "fontSize": 18, "fontWeight": "700", "fontFamily": "Poppins" }
+      }
+    },
+    {
+      "id": "attr-roles-id-1-0",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "角色主键",
+      "nameLabel": "id",
+      "commentLabel": "角色主键",
+      "parentEntity": "entity-roles-1",
+      "x": 1501.4121817890327,
+      "y": 1189.9793493684792,
+      "keyType": "pk",
+      "style": {
+        "fill": "#ecfdf5",
+        "stroke": "#10b981",
+        "shadowColor": "rgba(16, 185, 129, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 5
+      },
+      "labelCfg": {
+        "style": { "fill": "#0f172a", "fontSize": 15, "fontWeight": "700", "fontFamily": "Poppins" }
+      }
+    },
+    {
+      "id": "attr-roles-code-1-1",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "角色编码，如 student、teacher",
+      "nameLabel": "code",
+      "commentLabel": "角色编码，如 student、teacher",
+      "parentEntity": "entity-roles-1",
+      "x": 1270.4110740623987,
+      "y": 1079.7838212992976,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-roles-name-1-2",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "角色名称",
+      "nameLabel": "name",
+      "commentLabel": "角色名称",
+      "parentEntity": "entity-roles-1",
+      "x": 1330.1228086801084,
+      "y": 830.9081999011344,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-roles-description-1-3",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "角色说明",
+      "nameLabel": "description",
+      "commentLabel": "角色说明",
+      "parentEntity": "entity-roles-1",
+      "x": 1501.4121817890323,
+      "y": 794.4650420849114,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-roles-created_at-1-4",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "创建时间",
+      "nameLabel": "created_at",
+      "commentLabel": "创建时间",
+      "parentEntity": "entity-roles-1",
+      "x": 1637.5191202059275,
+      "y": 904.6605701540927,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-roles-updated_at-1-5",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "更新时间",
+      "nameLabel": "updated_at",
+      "commentLabel": "更新时间",
+      "parentEntity": "entity-roles-1",
+      "x": 1637.5191202059277,
+      "y": 1079.7838212992976,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "entity-permissions-2",
+      "type": "entity",
+      "nodeType": "entity",
+      "label": "PERMISSION（权限点）",
+      "nameLabel": "permissions",
+      "commentLabel": "定义后端接口和管理操作对应的权限点。",
+      "manualLabel": "PERMISSION（权限点）",
+      "x": 396.8248062244811,
+      "y": 396.8248062244811,
+      "style": {
+        "fill": "#e0f2fe",
+        "stroke": "#0ea5e9",
+        "shadowColor": "rgba(14, 165, 233, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 10
+      },
+      "labelCfg": {
+        "style": { "fill": "#0f172a", "fontSize": 18, "fontWeight": "700", "fontFamily": "Poppins" }
+      }
+    },
+    {
+      "id": "attr-permissions-id-2-0",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "权限主键",
+      "nameLabel": "id",
+      "commentLabel": "权限主键",
+      "parentEntity": "entity-permissions-2",
+      "x": 471.38397089133633,
+      "y": 156.29068391710825,
+      "keyType": "pk",
+      "style": {
+        "fill": "#ecfdf5",
+        "stroke": "#10b981",
+        "shadowColor": "rgba(16, 185, 129, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 5
+      },
+      "labelCfg": {
+        "style": { "fill": "#0f172a", "fontSize": 15, "fontWeight": "700", "fontFamily": "Poppins" }
+      }
+    },
+    {
+      "id": "attr-permissions-code-2-1",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "权限编码",
+      "nameLabel": "code",
+      "commentLabel": "权限编码",
+      "parentEntity": "entity-permissions-2",
+      "x": 619.2486713358425,
+      "y": 278.7428124281349,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-permissions-module-2-2",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "所属模块",
+      "nameLabel": "module",
+      "commentLabel": "所属模块",
+      "parentEntity": "entity-permissions-2",
+      "x": 637.836169172914,
+      "y": 469.8265593523083,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-permissions-action-2-3",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "操作类型，如 list、create、audit",
+      "nameLabel": "action",
+      "commentLabel": "操作类型，如 list、create、audit",
+      "parentEntity": "entity-permissions-2",
+      "x": 419.58401628128524,
+      "y": 647.6190473616884,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-permissions-description-2-4",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "权限说明",
+      "nameLabel": "description",
+      "commentLabel": "权限说明",
+      "parentEntity": "entity-permissions-2",
+      "x": 156.7779884112541,
+      "y": 320.7113495447268,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-permissions-created_at-2-5",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "创建时间",
+      "nameLabel": "created_at",
+      "commentLabel": "创建时间",
+      "parentEntity": "entity-permissions-2",
+      "x": 172.89200078496165,
+      "y": 512.0195616519039,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-permissions-updated_at-2-6",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "更新时间",
+      "nameLabel": "updated_at",
+      "commentLabel": "更新时间",
+      "parentEntity": "entity-permissions-2",
+      "x": 280.18399150968764,
+      "y": 173.64180200447638,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "entity-user_roles-3",
+      "type": "entity",
+      "nodeType": "entity",
+      "label": "USER_ROLE（用户角色）",
+      "nameLabel": "user_roles",
+      "commentLabel": "关联用户与角色，支持一个用户拥有多个角色。",
+      "manualLabel": "USER_ROLE（用户角色）",
+      "x": 1832.0632044608042,
+      "y": 1459.6792337389284,
+      "style": {
+        "fill": "#e0f2fe",
+        "stroke": "#0ea5e9",
+        "shadowColor": "rgba(14, 165, 233, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 10
+      },
+      "labelCfg": {
+        "style": { "fill": "#0f172a", "fontSize": 18, "fontWeight": "700", "fontFamily": "Poppins" }
+      }
+    },
+    {
+      "id": "attr-user_roles-id-3-0",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "关联主键",
+      "nameLabel": "id",
+      "commentLabel": "关联主键",
+      "parentEntity": "entity-user_roles-3",
+      "x": 1679.5282314241454,
+      "y": 1404.161043868987,
+      "keyType": "pk",
+      "style": {
+        "fill": "#ecfdf5",
+        "stroke": "#10b981",
+        "shadowColor": "rgba(16, 185, 129, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 5
+      },
+      "labelCfg": {
+        "style": { "fill": "#0f172a", "fontSize": 15, "fontWeight": "700", "fontFamily": "Poppins" }
+      }
+    },
+    {
+      "id": "attr-user_roles-created_at-3-3",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "创建时间",
+      "nameLabel": "created_at",
+      "commentLabel": "创建时间",
+      "parentEntity": "entity-user_roles-3",
+      "x": 1956.4108537786308,
+      "y": 1355.3391670585784,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-user_roles-updated_at-3-4",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "更新时间",
+      "nameLabel": "updated_at",
+      "commentLabel": "更新时间",
+      "parentEntity": "entity-user_roles-3",
+      "x": 1860.2505281796364,
+      "y": 1619.53749028922,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "entity-role_permissions-4",
+      "type": "entity",
+      "nodeType": "entity",
+      "label": "ROLE_PERMISSION（角色权限）",
+      "nameLabel": "role_permissions",
+      "commentLabel": "关联角色与权限点以实施服务端 RBAC 授权。",
+      "manualLabel": "ROLE_PERMISSION（角色权限）",
+      "x": 830.3510367777026,
+      "y": 941.2948547219878,
+      "style": {
+        "fill": "#e0f2fe",
+        "stroke": "#0ea5e9",
+        "shadowColor": "rgba(14, 165, 233, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 10
+      },
+      "labelCfg": {
+        "style": { "fill": "#0f172a", "fontSize": 18, "fontWeight": "700", "fontFamily": "Poppins" }
+      }
+    },
+    {
+      "id": "attr-role_permissions-id-4-0",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "关联主键",
+      "nameLabel": "id",
+      "commentLabel": "关联主键",
+      "parentEntity": "entity-role_permissions-4",
+      "x": 927.3757467021286,
+      "y": 1109.3465819007258,
+      "keyType": "pk",
+      "style": {
+        "fill": "#ecfdf5",
+        "stroke": "#10b981",
+        "shadowColor": "rgba(16, 185, 129, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 5
+      },
+      "labelCfg": {
+        "style": { "fill": "#0f172a", "fontSize": 15, "fontWeight": "700", "fontFamily": "Poppins" }
+      }
+    },
+    {
+      "id": "attr-role_permissions-created_at-4-3",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "创建时间",
+      "nameLabel": "created_at",
+      "commentLabel": "创建时间",
+      "parentEntity": "entity-role_permissions-4",
+      "x": 636.3016169288506,
+      "y": 941.2948547219878,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-role_permissions-updated_at-4-4",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "更新时间",
+      "nameLabel": "updated_at",
+      "commentLabel": "更新时间",
+      "parentEntity": "entity-role_permissions-4",
+      "x": 927.3757467021285,
+      "y": 773.2431275432497,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "entity-audit_logs-5",
+      "type": "entity",
+      "nodeType": "entity",
+      "label": "AUDIT_LOG（审计日志）",
+      "nameLabel": "audit_logs",
+      "commentLabel": "记录登录、题目发布、批改触发和审核等关键操作。",
+      "manualLabel": "AUDIT_LOG（审计日志）",
+      "x": 2312.578507492681,
+      "y": 2481.3533627466877,
+      "style": {
+        "fill": "#e0f2fe",
+        "stroke": "#0ea5e9",
+        "shadowColor": "rgba(14, 165, 233, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 10
+      },
+      "labelCfg": {
+        "style": { "fill": "#0f172a", "fontSize": 18, "fontWeight": "700", "fontFamily": "Poppins" }
+      }
+    },
+    {
+      "id": "attr-audit_logs-id-5-0",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "日志主键",
+      "nameLabel": "id",
+      "commentLabel": "日志主键",
+      "parentEntity": "entity-audit_logs-5",
+      "x": 2136.2512647118556,
+      "y": 2500.1315600500943,
+      "keyType": "pk",
+      "style": {
+        "fill": "#ecfdf5",
+        "stroke": "#10b981",
+        "shadowColor": "rgba(16, 185, 129, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 5
+      },
+      "labelCfg": {
+        "style": { "fill": "#0f172a", "fontSize": 15, "fontWeight": "700", "fontFamily": "Poppins" }
+      }
+    },
+    {
+      "id": "attr-audit_logs-module-5-2",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "操作模块",
+      "nameLabel": "module",
+      "commentLabel": "操作模块",
+      "parentEntity": "entity-audit_logs-5",
+      "x": 2161.073492389793,
+      "y": 2389.2113655937746,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-audit_logs-action-5-3",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "操作类型",
+      "nameLabel": "action",
+      "commentLabel": "操作类型",
+      "parentEntity": "entity-audit_logs-5",
+      "x": 2248.144924098481,
+      "y": 2316.1497593609365,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-audit_logs-target_type-5-4",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "操作目标类型",
+      "nameLabel": "target_type",
+      "commentLabel": "操作目标类型",
+      "parentEntity": "entity-audit_logs-5",
+      "x": 2376.716974954768,
+      "y": 2316.034960164674,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-audit_logs-target_id-5-5",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "操作目标 ID",
+      "nameLabel": "target_id",
+      "commentLabel": "操作目标 ID",
+      "parentEntity": "entity-audit_logs-5",
+      "x": 2477.3618612572177,
+      "y": 2415.852495861085,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-audit_logs-detail-5-6",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "操作详情",
+      "nameLabel": "detail",
+      "commentLabel": "操作详情",
+      "parentEntity": "entity-audit_logs-5",
+      "x": 2478.8738940442395,
+      "y": 2542.914402798994,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-audit_logs-ip_address-5-7",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "客户端 IP",
+      "nameLabel": "ip_address",
+      "commentLabel": "客户端 IP",
+      "parentEntity": "entity-audit_logs-5",
+      "x": 2401.9588314116163,
+      "y": 2634.503860417443,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-audit_logs-created_at-5-8",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "创建时间",
+      "nameLabel": "created_at",
+      "commentLabel": "创建时间",
+      "parentEntity": "entity-audit_logs-5",
+      "x": 2284.38261947463,
+      "y": 2656.421661246237,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-audit_logs-updated_at-5-9",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "更新时间",
+      "nameLabel": "updated_at",
+      "commentLabel": "更新时间",
+      "parentEntity": "entity-audit_logs-5",
+      "x": 2183.8770052057275,
+      "y": 2603.336314628232,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "entity-knowledge_points-6",
+      "type": "entity",
+      "nodeType": "entity",
+      "label": "KNOWLEDGE_POINT（知识点）",
+      "nameLabel": "knowledge_points",
+      "commentLabel": "存储课程知识点及其层级、难度等基础信息。",
+      "manualLabel": "KNOWLEDGE_POINT（知识点）",
+      "x": 1212.519793915814,
+      "y": 3087.8815014977745,
+      "style": {
+        "fill": "#e0f2fe",
+        "stroke": "#0ea5e9",
+        "shadowColor": "rgba(14, 165, 233, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 10
+      },
+      "labelCfg": {
+        "style": { "fill": "#0f172a", "fontSize": 18, "fontWeight": "700", "fontFamily": "Poppins" }
+      }
+    },
+    {
+      "id": "attr-knowledge_points-id-6-0",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "知识点主键",
+      "nameLabel": "id",
+      "commentLabel": "知识点主键",
+      "parentEntity": "entity-knowledge_points-6",
+      "x": 1387.713425167049,
+      "y": 3199.4523966264164,
+      "keyType": "pk",
+      "style": {
+        "fill": "#ecfdf5",
+        "stroke": "#10b981",
+        "shadowColor": "rgba(16, 185, 129, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 5
+      },
+      "labelCfg": {
+        "style": { "fill": "#0f172a", "fontSize": 15, "fontWeight": "700", "fontFamily": "Poppins" }
+      }
+    },
+    {
+      "id": "attr-knowledge_points-code-6-2",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "知识点编码",
+      "nameLabel": "code",
+      "commentLabel": "知识点编码",
+      "parentEntity": "entity-knowledge_points-6",
+      "x": 1114.4659276340421,
+      "y": 3270.9834195051963,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-knowledge_points-name-6-3",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "知识点名称",
+      "nameLabel": "name",
+      "commentLabel": "知识点名称",
+      "parentEntity": "entity-knowledge_points-6",
+      "x": 1013.7320595488183,
+      "y": 3148.0837417886214,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-knowledge_points-description-6-4",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "知识点说明",
+      "nameLabel": "description",
+      "commentLabel": "知识点说明",
+      "parentEntity": "entity-knowledge_points-6",
+      "x": 1029.354596334487,
+      "y": 2989.9458927244914,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-knowledge_points-difficulty_level-6-5",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "知识点难度等级",
+      "nameLabel": "difficulty_level",
+      "commentLabel": "知识点难度等级",
+      "parentEntity": "entity-knowledge_points-6",
+      "x": 1167.4662582823794,
+      "y": 2885.1228962605933,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-knowledge_points-status-6-6",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "知识点状态",
+      "nameLabel": "status",
+      "commentLabel": "知识点状态",
+      "parentEntity": "entity-knowledge_points-6",
+      "x": 1336.9734497537133,
+      "y": 2921.592113323478,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-knowledge_points-created_at-6-7",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "创建时间",
+      "nameLabel": "created_at",
+      "commentLabel": "创建时间",
+      "parentEntity": "entity-knowledge_points-6",
+      "x": 1416.844800765849,
+      "y": 3050.5697788555094,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-knowledge_points-updated_at-6-8",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "更新时间",
+      "nameLabel": "updated_at",
+      "commentLabel": "更新时间",
+      "parentEntity": "entity-knowledge_points-6",
+      "x": 1265.1202467979626,
+      "y": 3288.8144889025134,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "entity-knowledge_relations-7",
+      "type": "entity",
+      "nodeType": "entity",
+      "label": "KNOWLEDGE_RELATION（知识点关系）",
+      "nameLabel": "knowledge_relations",
+      "commentLabel": "维护知识点之间的先修或相关关系以支持图谱推荐。",
+      "manualLabel": "KNOWLEDGE_RELATION（知识点关系）",
+      "x": 483.90603384958354,
+      "y": 3324.6224630896104,
+      "style": {
+        "fill": "#e0f2fe",
+        "stroke": "#0ea5e9",
+        "shadowColor": "rgba(14, 165, 233, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 10
+      },
+      "labelCfg": {
+        "style": { "fill": "#0f172a", "fontSize": 18, "fontWeight": "700", "fontFamily": "Poppins" }
+      }
+    },
+    {
+      "id": "attr-knowledge_relations-id-7-0",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "关系主键",
+      "nameLabel": "id",
+      "commentLabel": "关系主键",
+      "parentEntity": "entity-knowledge_relations-7",
+      "x": 595.324318903749,
+      "y": 3018.8855621088733,
+      "keyType": "pk",
+      "style": {
+        "fill": "#ecfdf5",
+        "stroke": "#10b981",
+        "shadowColor": "rgba(16, 185, 129, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 5
+      },
+      "labelCfg": {
+        "style": { "fill": "#0f172a", "fontSize": 15, "fontWeight": "700", "fontFamily": "Poppins" }
+      }
+    },
+    {
+      "id": "attr-knowledge_relations-relation_type-7-3",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "关系类型，如 prerequisite、related",
+      "nameLabel": "relation_type",
+      "commentLabel": "关系类型，如 prerequisite、related",
+      "parentEntity": "entity-knowledge_relations-7",
+      "x": 765.7812837515517,
+      "y": 3487.21222401698,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-knowledge_relations-created_at-7-4",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "创建时间",
+      "nameLabel": "created_at",
+      "commentLabel": "创建时间",
+      "parentEntity": "entity-knowledge_relations-7",
+      "x": 275.03972667330424,
+      "y": 3574.14992168337,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-knowledge_relations-updated_at-7-5",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "更新时间",
+      "nameLabel": "updated_at",
+      "commentLabel": "更新时间",
+      "parentEntity": "entity-knowledge_relations-7",
+      "x": 202.0307839476153,
+      "y": 3162.0327021622406,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "entity-problems-8",
+      "type": "entity",
+      "nodeType": "entity",
+      "label": "PROBLEM（题目）",
+      "nameLabel": "problems",
+      "commentLabel": "保存正式题目与审核发布后的变式题内容。",
+      "manualLabel": "PROBLEM（题目）",
+      "x": 3367.9396127023483,
+      "y": 1483.514508870051,
+      "style": {
+        "fill": "#e0f2fe",
+        "stroke": "#0ea5e9",
+        "shadowColor": "rgba(14, 165, 233, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 10
+      },
+      "labelCfg": {
+        "style": { "fill": "#0f172a", "fontSize": 18, "fontWeight": "700", "fontFamily": "Poppins" }
+      }
+    },
+    {
+      "id": "attr-problems-id-8-0",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "题目主键",
+      "nameLabel": "id",
+      "commentLabel": "题目主键",
+      "parentEntity": "entity-problems-8",
+      "x": 3331.5615258303183,
+      "y": 1950.5324793202099,
+      "keyType": "pk",
+      "style": {
+        "fill": "#ecfdf5",
+        "stroke": "#10b981",
+        "shadowColor": "rgba(16, 185, 129, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 5
+      },
+      "labelCfg": {
+        "style": { "fill": "#0f172a", "fontSize": 15, "fontWeight": "700", "fontFamily": "Poppins" }
+      }
+    },
+    {
+      "id": "attr-problems-title-8-3",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "题目标题",
+      "nameLabel": "title",
+      "commentLabel": "题目标题",
+      "parentEntity": "entity-problems-8",
+      "x": 3217.243815450864,
+      "y": 1927.0457102737334,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-problems-statement-8-4",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "题面内容",
+      "nameLabel": "statement",
+      "commentLabel": "题面内容",
+      "parentEntity": "entity-problems-8",
+      "x": 3186.0825960028087,
+      "y": 1051.8234440968758,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-problems-input_description-8-5",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "输入说明",
+      "nameLabel": "input_description",
+      "commentLabel": "输入说明",
+      "parentEntity": "entity-problems-8",
+      "x": 3298.4405303243693,
+      "y": 1020.2661656712078,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-problems-output_description-8-6",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "输出说明",
+      "nameLabel": "output_description",
+      "commentLabel": "输出说明",
+      "parentEntity": "entity-problems-8",
+      "x": 3415.112335999839,
+      "y": 1017.4631339074265,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-problems-constraints_text-8-7",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "数据范围与约束",
+      "nameLabel": "constraints_text",
+      "commentLabel": "数据范围与约束",
+      "parentEntity": "entity-problems-8",
+      "x": 3470.396452541853,
+      "y": 1940.605031521699,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-problems-difficulty-8-8",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "题目难度",
+      "nameLabel": "difficulty",
+      "commentLabel": "题目难度",
+      "parentEntity": "entity-problems-8",
+      "x": 3828.8256386234452,
+      "y": 1399.7695326714024,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-problems-time_limit_ms-8-9",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "执行时间限制毫秒数",
+      "nameLabel": "time_limit_ms",
+      "commentLabel": "执行时间限制毫秒数",
+      "parentEntity": "entity-problems-8",
+      "x": 3831.0420306138913,
+      "y": 1553.979396951541,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-problems-memory_limit_mb-8-10",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "内存限制 MB",
+      "nameLabel": "memory_limit_mb",
+      "commentLabel": "内存限制 MB",
+      "parentEntity": "entity-problems-8",
+      "x": 2899.5099618721497,
+      "y": 1481.8375619559888,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-problems-reference_solution-8-11",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "参考题解或代码",
+      "nameLabel": "reference_solution",
+      "commentLabel": "参考题解或代码",
+      "parentEntity": "entity-problems-8",
+      "x": 3067.2622934714045,
+      "y": 1124.317766641022,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-problems-solution_explanation-8-12",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "静态题解说明及降级展示内容",
+      "nameLabel": "solution_explanation",
+      "commentLabel": "静态题解说明及降级展示内容",
+      "parentEntity": "entity-problems-8",
+      "x": 2941.9563234761854,
+      "y": 1288.6622899247345,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-problems-status-8-13",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "题目状态，如 draft、pending、published、rejected",
+      "nameLabel": "status",
+      "commentLabel": "题目状态，如 draft、pending、published、rejected",
+      "parentEntity": "entity-problems-8",
+      "x": 3005.0456568855225,
+      "y": 1779.719044215933,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-problems-origin_type-8-14",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "题目来源，如 manual、generated、imported",
+      "nameLabel": "origin_type",
+      "commentLabel": "题目来源，如 manual、generated、imported",
+      "parentEntity": "entity-problems-8",
+      "x": 3705.2430019739863,
+      "y": 1808.561541641803,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "attr-problems-published_at-8-15",
+      "type": "attribute",
+      "nodeType": "attribute",
+      "label": "发布时间，未发布为空值表示未发布状态。字段实际允许为空。 ",
+      "nameLabel": "published_at",
+      "commentLabel": "发布时间，未发布为空值表示未发布状态。字段实际允许为空。 ",
+      "parentEntity": "entity-problems-8",
+      "x": 3685.8554330044512,
+      "y": 1139.4815436915737,
+      "keyType": "normal",
+      "style": { "fill": "#ffffff", "stroke": "#94a3b8", "lineWidth": 2 },
+      "labelCfg": {
+        "style": {
+          "fill": "#475569",
+          "fontSize": 15,
+          "fontWeight": "normal",
+          "fontFamily": "Poppins"
+        }
+      }
+    },
+    {
+      "id": "rel-user_roles-users-user_id-0",
+      "type": "relationship",
+      "nodeType": "relationship",
+      "label": "用户 ID",
+      "nameLabel": "user_id",
+      "commentLabel": "用户 ID",
+      "x": 2040.5507997679335,
+      "y": 1645.833272480621,
+      "isSelfLoop": false,
+      "style": {
+        "fill": "#f5f3ff",
+        "stroke": "#8b5cf6",
+        "shadowColor": "rgba(139, 92, 246, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 10
+      },
+      "labelCfg": { "style": { "fill": "#0f172a", "fontSize": 16, "fontFamily": "Poppins" } }
+    },
+    {
+      "id": "rel-user_roles-roles-role_id-1",
+      "type": "relationship",
+      "nodeType": "relationship",
+      "label": "角色 ID",
+      "nameLabel": "role_id",
+      "commentLabel": "角色 ID",
+      "x": 1655.9203084821534,
+      "y": 1241.907087236371,
+      "isSelfLoop": false,
+      "style": {
+        "fill": "#f5f3ff",
+        "stroke": "#8b5cf6",
+        "shadowColor": "rgba(139, 92, 246, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 10
+      },
+      "labelCfg": { "style": { "fill": "#0f172a", "fontSize": 16, "fontFamily": "Poppins" } }
+    },
+    {
+      "id": "rel-role_permissions-roles-role_id-2",
+      "type": "relationship",
+      "nodeType": "relationship",
+      "label": "角色 ID",
+      "nameLabel": "role_id",
+      "commentLabel": "角色 ID",
+      "x": 1137.5135327780158,
+      "y": 966.3792300946718,
+      "isSelfLoop": false,
+      "style": {
+        "fill": "#f5f3ff",
+        "stroke": "#8b5cf6",
+        "shadowColor": "rgba(139, 92, 246, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 10
+      },
+      "labelCfg": { "style": { "fill": "#0f172a", "fontSize": 16, "fontFamily": "Poppins" } }
+    },
+    {
+      "id": "rel-role_permissions-permissions-permission_id-3",
+      "type": "relationship",
+      "nodeType": "relationship",
+      "label": "权限 ID",
+      "nameLabel": "permission_id",
+      "commentLabel": "权限 ID",
+      "x": 631.5819946152924,
+      "y": 691.6587718306102,
+      "isSelfLoop": false,
+      "style": {
+        "fill": "#f5f3ff",
+        "stroke": "#8b5cf6",
+        "shadowColor": "rgba(139, 92, 246, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 10
+      },
+      "labelCfg": { "style": { "fill": "#0f172a", "fontSize": 16, "fontFamily": "Poppins" } }
+    },
+    {
+      "id": "rel-audit_logs-users-user_id-4",
+      "type": "relationship",
+      "nodeType": "relationship",
+      "label": "操作用户 ID",
+      "nameLabel": "user_id",
+      "commentLabel": "操作用户 ID",
+      "x": 2311.5575781899297,
+      "y": 2209.652461490072,
+      "isSelfLoop": false,
+      "style": {
+        "fill": "#f5f3ff",
+        "stroke": "#8b5cf6",
+        "shadowColor": "rgba(139, 92, 246, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 10
+      },
+      "labelCfg": { "style": { "fill": "#0f172a", "fontSize": 16, "fontFamily": "Poppins" } }
+    },
+    {
+      "id": "rel-knowledge_points-knowledge_points-parent_id-5",
+      "type": "relationship",
+      "nodeType": "relationship",
+      "label": "父知识点 ID",
+      "nameLabel": "parent_id",
+      "commentLabel": "父知识点 ID",
+      "x": 1523.0193543747298,
+      "y": 2959.2683724448066,
+      "isSelfLoop": true,
+      "style": {
+        "fill": "#f5f3ff",
+        "stroke": "#8b5cf6",
+        "shadowColor": "rgba(139, 92, 246, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 10
+      },
+      "labelCfg": { "style": { "fill": "#0f172a", "fontSize": 16, "fontFamily": "Poppins" } }
+    },
+    {
+      "id": "rel-knowledge_relations-knowledge_points-source_knowledge_point_id-6",
+      "type": "relationship",
+      "nodeType": "relationship",
+      "label": "起点知识点 ID",
+      "nameLabel": "source_knowledge_point_id",
+      "commentLabel": "起点知识点 ID",
+      "x": 931.9924629608859,
+      "y": 3273.652723992536,
+      "isSelfLoop": false,
+      "style": {
+        "fill": "#f5f3ff",
+        "stroke": "#8b5cf6",
+        "shadowColor": "rgba(139, 92, 246, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 10
+      },
+      "labelCfg": { "style": { "fill": "#0f172a", "fontSize": 16, "fontFamily": "Poppins" } }
+    },
+    {
+      "id": "rel-knowledge_relations-knowledge_points-target_knowledge_point_id-7",
+      "type": "relationship",
+      "nodeType": "relationship",
+      "label": "终点知识点 ID",
+      "nameLabel": "target_knowledge_point_id",
+      "commentLabel": "终点知识点 ID",
+      "x": 876.3748309038674,
+      "y": 3102.47925343398,
+      "isSelfLoop": false,
+      "style": {
+        "fill": "#f5f3ff",
+        "stroke": "#8b5cf6",
+        "shadowColor": "rgba(139, 92, 246, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 10
+      },
+      "labelCfg": { "style": { "fill": "#0f172a", "fontSize": 16, "fontFamily": "Poppins" } }
+    },
+    {
+      "id": "rel-problems-problems-source_problem_id-8",
+      "type": "relationship",
+      "nodeType": "relationship",
+      "label": "生成变式题所依据的题目 ID",
+      "nameLabel": "source_problem_id",
+      "commentLabel": "生成变式题所依据的题目 ID",
+      "x": 3969.469224130443,
+      "y": 1234.3527856475164,
+      "isSelfLoop": true,
+      "style": {
+        "fill": "#f5f3ff",
+        "stroke": "#8b5cf6",
+        "shadowColor": "rgba(139, 92, 246, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 10
+      },
+      "labelCfg": { "style": { "fill": "#0f172a", "fontSize": 16, "fontFamily": "Poppins" } }
+    },
+    {
+      "id": "rel-problems-users-created_by_user_id-9",
+      "type": "relationship",
+      "nodeType": "relationship",
+      "label": "创建者或生成任务发起人 ID",
+      "nameLabel": "created_by_user_id",
+      "commentLabel": "创建者或生成任务发起人 ID",
+      "x": 2734.526510074803,
+      "y": 1725.005127418889,
+      "isSelfLoop": false,
+      "style": {
+        "fill": "#f5f3ff",
+        "stroke": "#8b5cf6",
+        "shadowColor": "rgba(139, 92, 246, 0.2)",
+        "lineWidth": 2,
+        "shadowBlur": 10
+      },
+      "labelCfg": { "style": { "fill": "#0f172a", "fontSize": 16, "fontFamily": "Poppins" } }
+    }
+  ],
+  "edges": [
+    {
+      "source": "entity-users-0",
+      "target": "attr-users-id-0-0",
+      "id": "edge-entity-users-0-attr-users-id-0-0-0-0",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-users-0",
+      "target": "attr-users-username-0-1",
+      "id": "edge-entity-users-0-attr-users-username-0-1-0-1",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-users-0",
+      "target": "attr-users-email-0-2",
+      "id": "edge-entity-users-0-attr-users-email-0-2-0-2",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-users-0",
+      "target": "attr-users-password_hash-0-3",
+      "id": "edge-entity-users-0-attr-users-password_hash-0-3-0-3",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-users-0",
+      "target": "attr-users-display_name-0-4",
+      "id": "edge-entity-users-0-attr-users-display_name-0-4-0-4",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-users-0",
+      "target": "attr-users-avatar_url-0-5",
+      "id": "edge-entity-users-0-attr-users-avatar_url-0-5-0-5",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-users-0",
+      "target": "attr-users-target_difficulty-0-6",
+      "id": "edge-entity-users-0-attr-users-target_difficulty-0-6-0-6",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-users-0",
+      "target": "attr-users-daily_practice_count-0-7",
+      "id": "edge-entity-users-0-attr-users-daily_practice_count-0-7-0-7",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-users-0",
+      "target": "attr-users-status-0-8",
+      "id": "edge-entity-users-0-attr-users-status-0-8-0-8",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-users-0",
+      "target": "attr-users-last_login_at-0-9",
+      "id": "edge-entity-users-0-attr-users-last_login_at-0-9-0-9",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-users-0",
+      "target": "attr-users-created_at-0-10",
+      "id": "edge-entity-users-0-attr-users-created_at-0-10-0-10",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-users-0",
+      "target": "attr-users-updated_at-0-11",
+      "id": "edge-entity-users-0-attr-users-updated_at-0-11-0-11",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-roles-1",
+      "target": "attr-roles-id-1-0",
+      "id": "edge-entity-roles-1-attr-roles-id-1-0-1-0",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-roles-1",
+      "target": "attr-roles-code-1-1",
+      "id": "edge-entity-roles-1-attr-roles-code-1-1-1-1",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-roles-1",
+      "target": "attr-roles-name-1-2",
+      "id": "edge-entity-roles-1-attr-roles-name-1-2-1-2",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-roles-1",
+      "target": "attr-roles-description-1-3",
+      "id": "edge-entity-roles-1-attr-roles-description-1-3-1-3",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-roles-1",
+      "target": "attr-roles-created_at-1-4",
+      "id": "edge-entity-roles-1-attr-roles-created_at-1-4-1-4",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-roles-1",
+      "target": "attr-roles-updated_at-1-5",
+      "id": "edge-entity-roles-1-attr-roles-updated_at-1-5-1-5",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-permissions-2",
+      "target": "attr-permissions-id-2-0",
+      "id": "edge-entity-permissions-2-attr-permissions-id-2-0-2-0",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-permissions-2",
+      "target": "attr-permissions-code-2-1",
+      "id": "edge-entity-permissions-2-attr-permissions-code-2-1-2-1",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-permissions-2",
+      "target": "attr-permissions-module-2-2",
+      "id": "edge-entity-permissions-2-attr-permissions-module-2-2-2-2",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-permissions-2",
+      "target": "attr-permissions-action-2-3",
+      "id": "edge-entity-permissions-2-attr-permissions-action-2-3-2-3",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-permissions-2",
+      "target": "attr-permissions-description-2-4",
+      "id": "edge-entity-permissions-2-attr-permissions-description-2-4-2-4",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-permissions-2",
+      "target": "attr-permissions-created_at-2-5",
+      "id": "edge-entity-permissions-2-attr-permissions-created_at-2-5-2-5",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-permissions-2",
+      "target": "attr-permissions-updated_at-2-6",
+      "id": "edge-entity-permissions-2-attr-permissions-updated_at-2-6-2-6",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-user_roles-3",
+      "target": "attr-user_roles-id-3-0",
+      "id": "edge-entity-user_roles-3-attr-user_roles-id-3-0-3-0",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-user_roles-3",
+      "target": "attr-user_roles-created_at-3-3",
+      "id": "edge-entity-user_roles-3-attr-user_roles-created_at-3-3-3-3",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-user_roles-3",
+      "target": "attr-user_roles-updated_at-3-4",
+      "id": "edge-entity-user_roles-3-attr-user_roles-updated_at-3-4-3-4",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-role_permissions-4",
+      "target": "attr-role_permissions-id-4-0",
+      "id": "edge-entity-role_permissions-4-attr-role_permissions-id-4-0-4-0",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-role_permissions-4",
+      "target": "attr-role_permissions-created_at-4-3",
+      "id": "edge-entity-role_permissions-4-attr-role_permissions-created_at-4-3-4-3",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-role_permissions-4",
+      "target": "attr-role_permissions-updated_at-4-4",
+      "id": "edge-entity-role_permissions-4-attr-role_permissions-updated_at-4-4-4-4",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-audit_logs-5",
+      "target": "attr-audit_logs-id-5-0",
+      "id": "edge-entity-audit_logs-5-attr-audit_logs-id-5-0-5-0",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-audit_logs-5",
+      "target": "attr-audit_logs-module-5-2",
+      "id": "edge-entity-audit_logs-5-attr-audit_logs-module-5-2-5-2",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-audit_logs-5",
+      "target": "attr-audit_logs-action-5-3",
+      "id": "edge-entity-audit_logs-5-attr-audit_logs-action-5-3-5-3",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-audit_logs-5",
+      "target": "attr-audit_logs-target_type-5-4",
+      "id": "edge-entity-audit_logs-5-attr-audit_logs-target_type-5-4-5-4",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-audit_logs-5",
+      "target": "attr-audit_logs-target_id-5-5",
+      "id": "edge-entity-audit_logs-5-attr-audit_logs-target_id-5-5-5-5",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-audit_logs-5",
+      "target": "attr-audit_logs-detail-5-6",
+      "id": "edge-entity-audit_logs-5-attr-audit_logs-detail-5-6-5-6",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-audit_logs-5",
+      "target": "attr-audit_logs-ip_address-5-7",
+      "id": "edge-entity-audit_logs-5-attr-audit_logs-ip_address-5-7-5-7",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-audit_logs-5",
+      "target": "attr-audit_logs-created_at-5-8",
+      "id": "edge-entity-audit_logs-5-attr-audit_logs-created_at-5-8-5-8",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-audit_logs-5",
+      "target": "attr-audit_logs-updated_at-5-9",
+      "id": "edge-entity-audit_logs-5-attr-audit_logs-updated_at-5-9-5-9",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-knowledge_points-6",
+      "target": "attr-knowledge_points-id-6-0",
+      "id": "edge-entity-knowledge_points-6-attr-knowledge_points-id-6-0-6-0",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-knowledge_points-6",
+      "target": "attr-knowledge_points-code-6-2",
+      "id": "edge-entity-knowledge_points-6-attr-knowledge_points-code-6-2-6-2",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-knowledge_points-6",
+      "target": "attr-knowledge_points-name-6-3",
+      "id": "edge-entity-knowledge_points-6-attr-knowledge_points-name-6-3-6-3",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-knowledge_points-6",
+      "target": "attr-knowledge_points-description-6-4",
+      "id": "edge-entity-knowledge_points-6-attr-knowledge_points-description-6-4-6-4",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-knowledge_points-6",
+      "target": "attr-knowledge_points-difficulty_level-6-5",
+      "id": "edge-entity-knowledge_points-6-attr-knowledge_points-difficulty_level-6-5-6-5",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-knowledge_points-6",
+      "target": "attr-knowledge_points-status-6-6",
+      "id": "edge-entity-knowledge_points-6-attr-knowledge_points-status-6-6-6-6",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-knowledge_points-6",
+      "target": "attr-knowledge_points-created_at-6-7",
+      "id": "edge-entity-knowledge_points-6-attr-knowledge_points-created_at-6-7-6-7",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-knowledge_points-6",
+      "target": "attr-knowledge_points-updated_at-6-8",
+      "id": "edge-entity-knowledge_points-6-attr-knowledge_points-updated_at-6-8-6-8",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-knowledge_relations-7",
+      "target": "attr-knowledge_relations-id-7-0",
+      "id": "edge-entity-knowledge_relations-7-attr-knowledge_relations-id-7-0-7-0",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-knowledge_relations-7",
+      "target": "attr-knowledge_relations-relation_type-7-3",
+      "id": "edge-entity-knowledge_relations-7-attr-knowledge_relations-relation_type-7-3-7-3",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-knowledge_relations-7",
+      "target": "attr-knowledge_relations-created_at-7-4",
+      "id": "edge-entity-knowledge_relations-7-attr-knowledge_relations-created_at-7-4-7-4",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-knowledge_relations-7",
+      "target": "attr-knowledge_relations-updated_at-7-5",
+      "id": "edge-entity-knowledge_relations-7-attr-knowledge_relations-updated_at-7-5-7-5",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-problems-8",
+      "target": "attr-problems-id-8-0",
+      "id": "edge-entity-problems-8-attr-problems-id-8-0-8-0",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-problems-8",
+      "target": "attr-problems-title-8-3",
+      "id": "edge-entity-problems-8-attr-problems-title-8-3-8-3",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-problems-8",
+      "target": "attr-problems-statement-8-4",
+      "id": "edge-entity-problems-8-attr-problems-statement-8-4-8-4",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-problems-8",
+      "target": "attr-problems-input_description-8-5",
+      "id": "edge-entity-problems-8-attr-problems-input_description-8-5-8-5",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-problems-8",
+      "target": "attr-problems-output_description-8-6",
+      "id": "edge-entity-problems-8-attr-problems-output_description-8-6-8-6",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-problems-8",
+      "target": "attr-problems-constraints_text-8-7",
+      "id": "edge-entity-problems-8-attr-problems-constraints_text-8-7-8-7",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-problems-8",
+      "target": "attr-problems-difficulty-8-8",
+      "id": "edge-entity-problems-8-attr-problems-difficulty-8-8-8-8",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-problems-8",
+      "target": "attr-problems-time_limit_ms-8-9",
+      "id": "edge-entity-problems-8-attr-problems-time_limit_ms-8-9-8-9",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-problems-8",
+      "target": "attr-problems-memory_limit_mb-8-10",
+      "id": "edge-entity-problems-8-attr-problems-memory_limit_mb-8-10-8-10",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-problems-8",
+      "target": "attr-problems-reference_solution-8-11",
+      "id": "edge-entity-problems-8-attr-problems-reference_solution-8-11-8-11",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-problems-8",
+      "target": "attr-problems-solution_explanation-8-12",
+      "id": "edge-entity-problems-8-attr-problems-solution_explanation-8-12-8-12",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-problems-8",
+      "target": "attr-problems-status-8-13",
+      "id": "edge-entity-problems-8-attr-problems-status-8-13-8-13",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-problems-8",
+      "target": "attr-problems-origin_type-8-14",
+      "id": "edge-entity-problems-8-attr-problems-origin_type-8-14-8-14",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-problems-8",
+      "target": "attr-problems-published_at-8-15",
+      "id": "edge-entity-problems-8-attr-problems-published_at-8-15-8-15",
+      "edgeType": "entity-attribute",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-user_roles-3",
+      "target": "rel-user_roles-users-user_id-0",
+      "id": "edge-entity-user_roles-rel-user_roles-users-user_id-0-0-1",
+      "label": "N",
+      "edgeType": "entity-relationship",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "rel-user_roles-users-user_id-0",
+      "target": "entity-users-0",
+      "id": "edge-rel-user_roles-users-user_id-0-entity-users-0-2",
+      "label": "1",
+      "edgeType": "relationship-entity",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-user_roles-3",
+      "target": "rel-user_roles-roles-role_id-1",
+      "id": "edge-entity-user_roles-rel-user_roles-roles-role_id-1-1-1",
+      "label": "N",
+      "edgeType": "entity-relationship",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "rel-user_roles-roles-role_id-1",
+      "target": "entity-roles-1",
+      "id": "edge-rel-user_roles-roles-role_id-1-entity-roles-1-2",
+      "label": "1",
+      "edgeType": "relationship-entity",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-role_permissions-4",
+      "target": "rel-role_permissions-roles-role_id-2",
+      "id": "edge-entity-role_permissions-rel-role_permissions-roles-role_id-2-2-1",
+      "label": "N",
+      "edgeType": "entity-relationship",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "rel-role_permissions-roles-role_id-2",
+      "target": "entity-roles-1",
+      "id": "edge-rel-role_permissions-roles-role_id-2-entity-roles-2-2",
+      "label": "1",
+      "edgeType": "relationship-entity",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-role_permissions-4",
+      "target": "rel-role_permissions-permissions-permission_id-3",
+      "id": "edge-entity-role_permissions-rel-role_permissions-permissions-permission_id-3-3-1",
+      "label": "N",
+      "edgeType": "entity-relationship",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "rel-role_permissions-permissions-permission_id-3",
+      "target": "entity-permissions-2",
+      "id": "edge-rel-role_permissions-permissions-permission_id-3-entity-permissions-3-2",
+      "label": "1",
+      "edgeType": "relationship-entity",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-audit_logs-5",
+      "target": "rel-audit_logs-users-user_id-4",
+      "id": "edge-entity-audit_logs-rel-audit_logs-users-user_id-4-4-1",
+      "label": "N",
+      "edgeType": "entity-relationship",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "rel-audit_logs-users-user_id-4",
+      "target": "entity-users-0",
+      "id": "edge-rel-audit_logs-users-user_id-4-entity-users-4-2",
+      "label": "1",
+      "edgeType": "relationship-entity",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-knowledge_points-6",
+      "target": "rel-knowledge_points-knowledge_points-parent_id-5",
+      "id": "edge-entity-knowledge_points-rel-knowledge_points-knowledge_points-parent_id-5-5-1",
+      "label": "N",
+      "type": "self-loop-arc",
+      "edgeType": "entity-relationship",
+      "curveOffset": 22,
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "rel-knowledge_points-knowledge_points-parent_id-5",
+      "target": "entity-knowledge_points-6",
+      "id": "edge-rel-knowledge_points-knowledge_points-parent_id-5-entity-knowledge_points-5-2",
+      "label": "1",
+      "type": "self-loop-arc",
+      "edgeType": "relationship-entity",
+      "curveOffset": 22,
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-knowledge_relations-7",
+      "target": "rel-knowledge_relations-knowledge_points-source_knowledge_point_id-6",
+      "id": "edge-entity-knowledge_relations-rel-knowledge_relations-knowledge_points-source_knowledge_point_id-6-6-1",
+      "label": "N",
+      "edgeType": "entity-relationship",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "rel-knowledge_relations-knowledge_points-source_knowledge_point_id-6",
+      "target": "entity-knowledge_points-6",
+      "id": "edge-rel-knowledge_relations-knowledge_points-source_knowledge_point_id-6-entity-knowledge_points-6-2",
+      "label": "1",
+      "edgeType": "relationship-entity",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-knowledge_relations-7",
+      "target": "rel-knowledge_relations-knowledge_points-target_knowledge_point_id-7",
+      "id": "edge-entity-knowledge_relations-rel-knowledge_relations-knowledge_points-target_knowledge_point_id-7-7-1",
+      "label": "N",
+      "edgeType": "entity-relationship",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "rel-knowledge_relations-knowledge_points-target_knowledge_point_id-7",
+      "target": "entity-knowledge_points-6",
+      "id": "edge-rel-knowledge_relations-knowledge_points-target_knowledge_point_id-7-entity-knowledge_points-7-2",
+      "label": "1",
+      "edgeType": "relationship-entity",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-problems-8",
+      "target": "rel-problems-problems-source_problem_id-8",
+      "id": "edge-entity-problems-rel-problems-problems-source_problem_id-8-8-1",
+      "label": "N",
+      "type": "self-loop-arc",
+      "edgeType": "entity-relationship",
+      "curveOffset": 22,
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "rel-problems-problems-source_problem_id-8",
+      "target": "entity-problems-8",
+      "id": "edge-rel-problems-problems-source_problem_id-8-entity-problems-8-2",
+      "label": "1",
+      "type": "self-loop-arc",
+      "edgeType": "relationship-entity",
+      "curveOffset": 22,
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "entity-problems-8",
+      "target": "rel-problems-users-created_by_user_id-9",
+      "id": "edge-entity-problems-rel-problems-users-created_by_user_id-9-9-1",
+      "label": "N",
+      "edgeType": "entity-relationship",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    },
+    {
+      "source": "rel-problems-users-created_by_user_id-9",
+      "target": "entity-users-0",
+      "id": "edge-rel-problems-users-created_by_user_id-9-entity-users-9-2",
+      "label": "1",
+      "edgeType": "relationship-entity",
+      "style": { "stroke": "#000000", "lineWidth": 1.5, "endArrow": false },
+      "labelCfg": {
+        "style": {
+          "fill": "#000000",
+          "fontSize": 12,
+          "background": { "fill": "#ffffff", "radius": 2, "padding": [2, 4, 2, 4] }
+        }
+      }
+    }
+  ],
+  "parserWarnings": [
+    {
+      "code": "statement_skipped",
+      "message": "line 18: content after CREATE TABLE \"users\" looks like another unterminated statement",
+      "line": 18
+    },
+    {
+      "code": "statement_skipped",
+      "message": "line 28: content after CREATE TABLE \"roles\" looks like another unterminated statement",
+      "line": 28
+    },
+    {
+      "code": "statement_skipped",
+      "message": "line 39: content after CREATE TABLE \"permissions\" looks like another unterminated statement",
+      "line": 39
+    },
+    {
+      "code": "statement_skipped",
+      "message": "line 48: content after CREATE TABLE \"user_roles\" looks like another unterminated statement",
+      "line": 48
+    },
+    {
+      "code": "statement_skipped",
+      "message": "line 57: content after CREATE TABLE \"role_permissions\" looks like another unterminated statement",
+      "line": 57
+    },
+    {
+      "code": "statement_skipped",
+      "message": "line 71: content after CREATE TABLE \"audit_logs\" looks like another unterminated statement",
+      "line": 71
+    },
+    {
+      "code": "statement_skipped",
+      "message": "line 84: content after CREATE TABLE \"knowledge_points\" looks like another unterminated statement",
+      "line": 84
+    },
+    {
+      "code": "statement_skipped",
+      "message": "line 94: content after CREATE TABLE \"knowledge_relations\" looks like another unterminated statement",
+      "line": 94
+    },
+    {
+      "code": "statement_skipped",
+      "message": "line 114: content after CREATE TABLE \"problems\" looks like another unterminated statement",
+      "line": 114
+    }
+  ]
+}

@@ -1,0 +1,501 @@
+// GraduateStudio 数据库 schema
+// Phase 0/1:认证基线 + Project。
+// Phase 2:项目选题偏好 + Requirement / UserRole / Feature(需求分析结构化存储)。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String?
+  email         String?   @unique
+  emailVerified DateTime?
+  image         String?
+  passwordHash  String?
+  accounts      Account[]
+  sessions      Session[]
+  projects      Project[]
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+}
+
+model Account {
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@id([provider, providerAccountId])
+
+
+  @@index([userId])
+}
+
+model Session {
+  sessionToken String   @id
+  userId       String
+  expires      DateTime
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+
+  @@index([userId])
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// 毕业设计项目(SQLite 无枚举/数组:枚举与列表字段存字符串/JSON,取值由应用层 zod 校验)
+model Project {
+  id          String   @id @default(cuid())
+  userId      String
+  name        String
+  description String?
+  type        String   @default("web")
+  techStack   String   @default("[]")
+  stage       String   @default("topic")
+  progress    Int      @default(0)
+  status      String   @default("active")
+  // 选题/偏好(Phase 2)
+  devLanguage String?
+  database    String?
+  difficulty  String?
+  needsAi     Boolean  @default(false)
+  background  String?
+  goals       String   @default("[]")
+  scores      String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  requirement Requirement?
+  architecture Architecture?
+  changeSets  ChangeSet[]
+  activityLogs ActivityLog[]
+  agentTasks  AgentTask[]
+  testRuns    TestRun[]
+  documents   Document[]
+  defenseQuestions DefenseQuestion[]
+  defenseSessions  DefenseSession[]
+  defenseMaterials DefenseMaterial[]
+
+  @@index([userId, updatedAt])
+}
+
+// AI 需求分析结果(1:1 关联项目;列表类内容以 JSON 存储,角色/功能为独立表)
+model Requirement {
+  id            String   @id @default(cuid())
+  projectId     String   @unique
+  background    String?
+  goals         String   @default("[]")
+  businessFlows String   @default("[]")
+  nonFunctional String   @default("[]")
+  boundaries    String   @default("{}")
+  devTasks      String   @default("[]")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  project       Project      @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  roles         UserRole[]
+  features      Feature[]
+
+  @@index([projectId])
+}
+
+// 需求中的用户角色(如:学生用户 / 管理员)
+model UserRole {
+  id            String      @id @default(cuid())
+  requirementId String
+  name          String
+  description   String      @default("")
+  order         Int         @default(0)
+  requirement   Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+
+  @@index([requirementId])
+}
+
+// 功能树节点:parentId 为空表示顶层功能模块,否则为模块下的功能点
+model Feature {
+  id            String      @id @default(cuid())
+  requirementId String
+  parentId      String?
+  name          String
+  description   String      @default("")
+  priority      String      @default("should")
+  order         Int         @default(0)
+  requirement   Requirement @relation(fields: [requirementId], references: [id], onDelete: Cascade)
+  parent        Feature?    @relation("FeatureTree", fields: [parentId], references: [id], onDelete: Cascade)
+  children      Feature[]   @relation("FeatureTree")
+
+  @@index([requirementId])
+  @@index([parentId])
+}
+
+// Phase 4:代码变更集。AI 计划 → Diff → 用户 Accept/Reject;所有写盘操作可追溯、可撤销。
+model ChangeSet {
+  id        String    @id @default(cuid())
+  projectId String
+  title     String
+  summary   String    @default("")
+  plan      String    @default("[]")
+  source    String    @default("ai")
+  status    String    @default("pending")
+  createdAt DateTime  @default(now())
+  appliedAt DateTime?
+  project   Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  changes   Change[]
+
+  @@index([projectId, createdAt])
+}
+
+model Change {
+  id            String    @id @default(cuid())
+  changeSetId   String
+  path          String
+  action        String
+  beforeContent String?
+  afterContent  String?
+  changeSet     ChangeSet @relation(fields: [changeSetId], references: [id], onDelete: Cascade)
+
+  @@index([changeSetId])
+}
+
+// Phase 4:项目活动日志(Terminal 命令、AI 调用、文件修改、系统事件)
+model ActivityLog {
+  id        String   @id @default(cuid())
+  projectId String
+  kind      String
+  message   String
+  detail    String   @default("")
+  createdAt DateTime @default(now())
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, createdAt])
+}
+
+// Phase 3:系统架构(draft=AI 建议草稿,confirmed=用户已确认;确认后不被自动覆盖)
+model Architecture {
+  id            String   @id @default(cuid())
+  projectId     String   @unique
+  status        String   @default("draft")
+  summary       String   @default("")
+  frontendArch  String   @default("")
+  backendArch   String   @default("")
+  rationale     String   @default("")
+  directoryTree String   @default("")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  project       Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  techStacks    TechnologyStack[]
+  modules       ArchitectureModule[]
+  apiDefinitions ApiDefinition[]
+  permissionRules PermissionRule[]
+  database      DatabaseSchema?
+
+  @@index([projectId])
+}
+
+model TechnologyStack {
+  id             String       @id @default(cuid())
+  architectureId String
+  layer          String
+  name           String
+  reason         String       @default("")
+  order          Int          @default(0)
+  architecture   Architecture @relation(fields: [architectureId], references: [id], onDelete: Cascade)
+
+  @@index([architectureId])
+}
+
+model ArchitectureModule {
+  id             String       @id @default(cuid())
+  architectureId String
+  name           String
+  description    String       @default("")
+  layer          String       @default("both")
+  order          Int          @default(0)
+  architecture   Architecture @relation(fields: [architectureId], references: [id], onDelete: Cascade)
+
+  @@index([architectureId])
+}
+
+model ApiDefinition {
+  id             String       @id @default(cuid())
+  architectureId String
+  method         String
+  path           String
+  module         String       @default("")
+  summary        String       @default("")
+  requiresAuth   Boolean      @default(true)
+  order          Int          @default(0)
+  architecture   Architecture @relation(fields: [architectureId], references: [id], onDelete: Cascade)
+
+  @@index([architectureId])
+}
+
+model PermissionRule {
+  id             String       @id @default(cuid())
+  architectureId String
+  role           String
+  resource       String
+  action         String
+  note           String       @default("")
+  order          Int          @default(0)
+  architecture   Architecture @relation(fields: [architectureId], references: [id], onDelete: Cascade)
+
+  @@index([architectureId])
+}
+
+// 数据库设计:表 / 字段 / 索引 / 主外键 / 表关系
+model DatabaseSchema {
+  id             String       @id @default(cuid())
+  architectureId String       @unique
+  engine         String       @default("MySQL")
+  architecture   Architecture @relation(fields: [architectureId], references: [id], onDelete: Cascade)
+  tables         DatabaseTable[]
+  relations      DatabaseRelation[]
+}
+
+model DatabaseTable {
+  id          String         @id @default(cuid())
+  schemaId    String
+  name        String
+  description String         @default("")
+  indexesJson String         @default("[]")
+  order       Int            @default(0)
+  schemaRef   DatabaseSchema @relation(fields: [schemaId], references: [id], onDelete: Cascade)
+  fields      DatabaseField[]
+
+  @@index([schemaId])
+}
+
+model DatabaseField {
+  id           String        @id @default(cuid())
+  tableId      String
+  name         String
+  type         String
+  nullable     Boolean       @default(false)
+  isPrimary    Boolean       @default(false)
+  isUnique     Boolean       @default(false)
+  defaultValue String?
+  description  String        @default("")
+  order        Int           @default(0)
+  table        DatabaseTable @relation(fields: [tableId], references: [id], onDelete: Cascade)
+
+  @@index([tableId])
+}
+
+model DatabaseRelation {
+  id        String         @id @default(cuid())
+  schemaId  String
+  fromTable String
+  fromField String
+  toTable   String
+  toField   String
+  kind      String         @default("one-to-many")
+  schemaRef DatabaseSchema @relation(fields: [schemaId], references: [id], onDelete: Cascade)
+
+  @@index([schemaId])
+}
+
+// Phase 7:测试运行与用例结果(失败分析由 AI 写入 result.analysis)
+model TestRun {
+  id         String   @id @default(cuid())
+  projectId  String
+  kind       String   @default("unit")
+  status     String   @default("running")
+  command    String   @default("")
+  total      Int      @default(0)
+  passed     Int      @default(0)
+  failed     Int      @default(0)
+  skipped    Int      @default(0)
+  output     String   @default("")
+  durationMs Int      @default(0)
+  createdAt  DateTime @default(now())
+  finishedAt DateTime?
+  project    Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  results    TestResult[]
+
+  @@index([projectId, createdAt])
+}
+
+model TestResult {
+  id         String   @id @default(cuid())
+  runId      String
+  name       String
+  suite      String   @default("")
+  status     String   @default("passed")
+  message    String   @default("")
+  analysis   String?
+  durationMs Int      @default(0)
+  ignored    Boolean  @default(false)
+  run        TestRun  @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+}
+
+// Phase 5:自主开发任务(Autonomous Development Loop)
+// status: queued|analyzing|planning|coding|checking|fixing|completed|failed|cancelled|paused
+model AgentTask {
+  id            String    @id @default(cuid())
+  projectId     String
+  title         String    @default("")
+  message       String
+  status        String    @default("queued")
+  maxSteps      Int       @default(12)
+  fixAttempts   Int       @default(0)
+  error         String?
+  gitCommitHash String?
+  createdAt     DateTime  @default(now())
+  startedAt     DateTime?
+  finishedAt    DateTime?
+  updatedAt     DateTime  @updatedAt
+  project       Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  steps         AgentStep[]
+
+  @@index([projectId, createdAt])
+}
+
+// 任务步骤:每一步可追踪(kind: analyze|plan|code|install|check|fix|note)
+model AgentStep {
+  id        String    @id @default(cuid())
+  taskId    String
+  index     Int       @default(0)
+  kind      String
+  title     String
+  status    String    @default("running")
+  detail    String    @default("")
+  changeSetId String?
+  createdAt DateTime  @default(now())
+  finishedAt DateTime?
+  task      AgentTask @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@index([taskId, index])
+}
+
+// Phase 9:毕业设计文档中心(说明书/开题报告/任务书/文献综述)
+model Document {
+  id        String   @id @default(cuid())
+  projectId String
+  type      String   @default("THESIS")
+  title     String
+  status    String   @default("draft")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  sections  DocumentSection[]
+  versions  DocumentVersion[]
+
+  @@unique([projectId, type])
+  @@index([projectId, updatedAt])
+}
+
+// 章节:树形(预留 parentId),sourceContext 记录生成时依赖的数据快照(用于同步检测)
+model DocumentSection {
+  id            String    @id @default(cuid())
+  documentId    String
+  key           String
+  title         String
+  content       String    @default("")
+  order         Int       @default(0)
+  sourceContext String    @default("{}")
+  generatedAt   DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  document      Document  @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, key])
+  @@index([documentId, order])
+}
+
+// 版本快照:AI 生成/用户修改/同步更新时留存整篇 Markdown
+model DocumentVersion {
+  id           String   @id @default(cuid())
+  documentId   String
+  version      Int
+  content      String
+  changeReason String   @default("")
+  createdAt    DateTime @default(now())
+  document     Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@unique([documentId, version])
+  @@index([documentId, version])
+}
+
+// Phase 10:答辩中心(题库 / 模拟会话 / 生成物)
+model DefenseQuestion {
+  id             String   @id @default(cuid())
+  projectId      String
+  category       String   @default("综合")
+  question       String
+  expectedPoints String   @default("[]")
+  difficulty     String   @default("进阶")
+  status         String   @default("pending")
+  createdAt      DateTime @default(now())
+  project        Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId, status])
+}
+
+model DefenseSession {
+  id           String    @id @default(cuid())
+  projectId    String
+  status       String    @default("active")
+  overallScore Int?
+  summary      String    @default("")
+  weakPoints   String    @default("[]")
+  createdAt    DateTime  @default(now())
+  finishedAt   DateTime?
+  project      Project   @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  turns        DefenseTurn[]
+
+  @@index([projectId, createdAt])
+}
+
+model DefenseTurn {
+  id         String         @id @default(cuid())
+  sessionId  String
+  index      Int            @default(0)
+  question   String
+  category   String         @default("综合")
+  isFollowup Boolean        @default(false)
+  answer     String         @default("")
+  scores     String         @default("{}")
+  comment    String         @default("")
+  createdAt  DateTime       @default(now())
+  session    DefenseSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@index([sessionId, index])
+}
+
+model DefenseMaterial {
+  id        String   @id @default(cuid())
+  projectId String
+  kind      String   @default("ppt_outline")
+  content   String   @default("{}")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  project   Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@unique([projectId, kind])
+}
