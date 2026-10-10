@@ -1,27 +1,142 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where([data-theme="dark"], [data-theme="dark"] *));
+
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  color-scheme: light;
+  --background: #f5f5f7;
+  --foreground: #1d1d1f;
+  --surface: #ffffff;
+  --muted: #6e6e73;
+  --line: #d2d2d7;
+  --accent: #0071e3;
+  --accent-soft: #e9f2fd;
+}
+
+[data-theme="dark"] {
+  color-scheme: dark;
+  --background: #000000;
+  --foreground: #f5f5f7;
+  --surface: #161617;
+  --muted: #a1a1a6;
+  --line: #38383a;
+  --accent: #2997ff;
+  --accent-soft: #2997ff24;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue",
-    Arial, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+  --color-surface: var(--surface);
+  --color-muted: var(--muted);
+  --color-line: var(--line);
+  --color-accent: var(--accent);
+  --color-accent-soft: var(--accent-soft);
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", Roboto, "Helvetica Neue", Arial,
+    "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+/* Existing feature views share the brand accent through their utility palette. */
+@theme {
+  --color-violet-50: #eef6ff;
+  --color-violet-100: #dcecff;
+  --color-violet-200: #bbdcff;
+  --color-violet-300: #8bc4ff;
+  --color-violet-400: #54a6ff;
+  --color-violet-500: #2997ff;
+  --color-violet-600: #0071e3;
+  --color-violet-700: #0066cc;
+  --color-violet-800: #0054a8;
+  --color-violet-900: #003e7d;
+  --color-violet-950: #00254d;
 }
 
+html {
+  scroll-behavior: smooth;
+  scroll-padding-top: 5rem;
+}
 body {
   background: var(--background);
   color: var(--foreground);
   font-family: var(--font-sans);
+}
+::selection {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+button:not(:disabled),
+[role="button"],
+select {
+  cursor: pointer;
+}
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+@layer components {
+  .eyebrow {
+    font-family: var(--font-mono);
+    font-size: 0.6875rem;
+    font-weight: 500;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .brand-panel {
+    border: 1px solid var(--line);
+    border-radius: 1.25rem;
+    background: var(--surface);
+    box-shadow: 0 2px 8px #00000003;
+  }
+  .page-shell {
+    width: 100%;
+    max-width: 1440px;
+    margin-inline: auto;
+    padding: 2rem 1rem;
+  }
+  .landing-shell {
+    width: 100%;
+    max-width: 1160px;
+    margin-inline: auto;
+    padding-inline: 1.5rem;
+  }
+  .hero-grid {
+    background-image:
+      linear-gradient(var(--line) 1px, transparent 1px),
+      linear-gradient(90deg, var(--line) 1px, transparent 1px);
+    background-size: 48px 48px;
+    mask-image: linear-gradient(to bottom, #00000020, transparent);
+  }
+  .rise {
+    animation: rise 0.65s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+}
+@media (min-width: 1024px) {
+  .page-shell {
+    padding: 2.75rem 2.5rem;
+  }
+}
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
 }

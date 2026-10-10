@@ -316,7 +316,7 @@ export function NewProjectView() {
 
           <details className="mt-4 rounded-md border border-zinc-200 px-4 py-3 dark:border-zinc-800">
             <summary className="cursor-pointer text-sm font-medium text-zinc-600 dark:text-zinc-300">
-              可选偏好(不填则完全由 AI 决定)
+              选题偏好（可选，未填写的内容由 AI 推荐）
             </summary>
             <div className="mt-4 grid gap-4 sm:grid-cols-2">
               <Field label="项目类型">
@@ -385,7 +385,7 @@ export function NewProjectView() {
             <div className="mt-4 rounded-md border border-red-200 bg-red-50/60 px-4 py-3 text-sm text-red-700 dark:border-red-500/30 dark:bg-red-500/5 dark:text-red-400">
               {topicError}
               <a href="/settings" className="ml-2 underline underline-offset-4">
-                检查 AI 配置
+                查看 AI 服务状态
               </a>
             </div>
           ) : null}

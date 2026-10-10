@@ -38,7 +38,7 @@ function ErrorState({ onRetry }: { onRetry: () => void }) {
     <div className="rounded-2xl border border-red-200 bg-red-50/60 p-10 text-center dark:border-red-500/30 dark:bg-red-500/5">
       <p className="font-medium text-red-700 dark:text-red-400">项目数据加载失败</p>
       <p className="mt-1 text-sm text-red-600/80 dark:text-red-400/70">
-        请检查网络或稍后重试;若持续失败,请查看服务端日志。
+        请检查网络连接或稍后重试。若登录已过期，请重新登录。
       </p>
       <Button variant="secondary" size="sm" className="mt-4" onClick={onRetry}>
         重试
@@ -53,9 +53,7 @@ function EmptyProjects() {
       <span className="mx-auto flex h-11 w-11 items-center justify-center rounded-xl bg-violet-600/10 text-violet-600 dark:text-violet-400">
         <SparklesIcon />
       </span>
-      <p className="mt-4 font-medium text-zinc-900 dark:text-zinc-100">
-        从零开始你的毕业设计
-      </p>
+      <p className="mt-4 font-medium text-zinc-900 dark:text-zinc-100">从零开始你的毕业设计</p>
       <p className="mx-auto mt-1.5 max-w-md text-sm leading-relaxed text-zinc-500 dark:text-zinc-400">
         创建第一个项目后,AI 将协助你完成选题、需求分析、开发、测试、论文与答辩。
       </p>
@@ -81,6 +79,27 @@ export function ProjectsView() {
 
   return (
     <div className="space-y-8">
+      <dl className="grid grid-cols-2 gap-px overflow-hidden rounded-2xl border border-line bg-line sm:grid-cols-4">
+        {[
+          { label: "全部项目", value: data.length },
+          { label: "进行中", value: data.filter((project) => project.status === "active").length },
+          {
+            label: "已完成",
+            value: data.filter((project) => project.status === "completed").length,
+          },
+          {
+            label: "已归档",
+            value: data.filter((project) => project.status === "archived").length,
+          },
+        ].map(({ label, value }) => (
+          <div key={label} className="bg-surface px-6 py-5">
+            <dt className="text-xs text-muted">{label}</dt>
+            <dd className="mt-2 text-3xl font-semibold tabular-nums tracking-tight text-foreground">
+              {String(value).padStart(2, "0")}
+            </dd>
+          </div>
+        ))}
+      </dl>
       <FeaturedProject project={featured} />
 
       {rest.length > 0 ? (

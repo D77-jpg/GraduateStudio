@@ -153,8 +153,7 @@ export function BottomPanel({
 
       {tab === "problems" ? (
         <div className="flex flex-1 items-center justify-center px-6 text-center text-xs text-zinc-400">
-          问题面板将在 Agent 自动执行 typecheck / 测试后填充(Phase
-          5-7:自动开发闭环会收集编译与测试错误)。
+          类型检查输出可在终端查看，测试结果请前往测试中心查看。
         </div>
       ) : null}
     </div>

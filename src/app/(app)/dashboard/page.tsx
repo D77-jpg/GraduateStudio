@@ -11,7 +11,8 @@ export default async function DashboardPage() {
   return (
     <>
       <SetPageTitle title="工作台" />
-      <div className="w-full px-4 py-8 lg:px-10">
+      <div className="page-shell">
+        <p className="eyebrow mb-4">WORKSPACE / 我的工作空间</p>
         <PageHeader
           title="我的毕业设计"
           description={displayName ? `你好,${displayName}。继续推进你的毕业设计。` : undefined}

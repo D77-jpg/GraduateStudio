@@ -30,7 +30,7 @@ interface RecentProject {
 function Logo() {
   return (
     <Link href="/dashboard" className="flex items-center gap-2.5 px-2">
-      <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-zinc-900 text-sm font-bold text-white dark:bg-white dark:text-zinc-900">
+      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-foreground text-sm font-bold text-background">
         G
       </span>
       <span className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
@@ -49,7 +49,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
   });
   const projects = (projectsQuery.data?.projects ?? []).slice(0, 5);
 
-  const isProjectHome = /^\/projects\/[^/]+$/.test(pathname);
+  const isProjectHome = /^\/projects\/[^/]+(?:\/|$)/.test(pathname);
 
   return (
     <div className="flex h-full flex-col">
@@ -78,7 +78,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
               onClick={onNavigate}
               className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
                 active
-                  ? "bg-zinc-200/70 font-medium text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
+                  ? "bg-accent-soft font-medium text-accent"
                   : "text-zinc-600 hover:bg-zinc-200/50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-100"
               }`}
             >
@@ -96,9 +96,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
             {projectsQuery.isPending ? (
               <p className="px-3 py-2 text-xs text-zinc-400">加载中…</p>
             ) : projects.length === 0 ? (
-              <p className="px-3 py-2 text-xs text-zinc-400">
-                还没有项目,点击「新建项目」开始
-              </p>
+              <p className="px-3 py-2 text-xs text-zinc-400">还没有项目,点击「新建项目」开始</p>
             ) : (
               projects.map((project) => {
                 const active = isProjectHome && pathname.includes(project.id);
@@ -110,7 +108,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                     title={project.name}
                     className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
                       active
-                        ? "bg-zinc-200/70 font-medium text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100"
+                        ? "bg-accent-soft font-medium text-accent"
                         : "text-zinc-600 hover:bg-zinc-200/50 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800/60 dark:hover:text-zinc-100"
                     }`}
                   >
@@ -129,8 +127,15 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 
       <div className="shrink-0 border-t border-zinc-200/80 px-5 py-3.5 dark:border-zinc-800/80">
         <p className="text-[11px] leading-relaxed text-zinc-400 dark:text-zinc-600">
-          v0.11 · Phase 0–11
-          <span className="mx-1.5">·</span>AI 毕业设计工作台
+          AI 毕业设计工作台
+          <a
+            href="https://sevnai.site"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="mt-2 block font-mono tracking-wider text-muted transition-colors hover:text-accent"
+          >
+            BY SEVN AILAB ↗
+          </a>
         </p>
       </div>
     </div>
@@ -139,7 +144,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
 
 export function Sidebar() {
   return (
-    <aside className="sticky top-0 hidden h-screen w-60 shrink-0 border-r border-zinc-200/80 bg-zinc-50 md:block dark:border-zinc-800/80 dark:bg-zinc-900/40">
+    <aside className="sticky top-0 hidden h-screen w-64 shrink-0 border-r border-line bg-surface md:block">
       <NavContent />
     </aside>
   );

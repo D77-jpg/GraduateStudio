@@ -234,7 +234,7 @@ export async function addFeature(
   if (input.parentId) {
     const parent = await loadOwnedFeature(input.parentId, projectId, userId);
     if (parent.parentId !== null) {
-      throw new RequirementConflictError("Phase 2 功能树只支持两层:功能点下不能再添加子功能");
+      throw new RequirementConflictError("功能树按模块和功能点组织，功能点下不能再添加子功能");
     }
     parentId = parent.id;
   }

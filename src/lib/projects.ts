@@ -1,55 +1,110 @@
 import { z } from "zod";
 
-/**
- * 项目领域模型(前后端共享)。
- * 阶段顺序对应产品规划的毕业进度:选题 → 需求 → UI → 架构 → 数据库 → 开发 → 测试 → 文档 → 答辩 → 部署。
- */
-
+/** 项目领域模型(前后端共享)。阶段键保持兼容已有数据，只统一产品顺序与展示。 */
 export const PROJECT_STAGES = [
   "topic",
   "requirements",
-  "design",
   "architecture",
+  "design",
   "database",
   "coding",
   "testing",
+  "deploy",
   "docs",
   "defense",
-  "deploy",
 ] as const;
 
 export type ProjectStage = (typeof PROJECT_STAGES)[number];
 
-export const STAGE_LABELS: Record<ProjectStage, string> = {
-  topic: "选题",
-  requirements: "需求分析",
-  design: "UI 设计",
-  architecture: "系统架构",
-  database: "数据库",
-  coding: "AI 开发",
-  testing: "测试",
-  docs: "文档",
-  defense: "答辩",
-  deploy: "部署",
-};
+/** 唯一的阶段元数据源。界面设计复用开发工作区，不创建不存在的 design 路由。 */
+export const STAGE_METADATA = {
+  topic: {
+    label: "选题规划",
+    description: "明确研究方向、项目背景与毕业设计目标。",
+    route: "/projects/:id",
+  },
+  requirements: {
+    label: "需求分析",
+    description: "梳理用户角色、功能模块与业务流程。",
+    route: "/projects/:id/requirements",
+  },
+  architecture: {
+    label: "架构设计",
+    description: "确定系统分层、技术选型与模块协作。",
+    route: "/projects/:id/architecture",
+  },
+  design: {
+    label: "界面设计",
+    description: "在开发工作区构建页面结构与交互界面。",
+    route: "/projects/:id/develop?stage=design",
+  },
+  database: {
+    label: "数据库设计",
+    description: "设计实体关系、数据表与存储约束。",
+    route: "/projects/:id/database",
+  },
+  coding: {
+    label: "AI 开发",
+    description: "与 AI 协作编写代码，实现核心功能。",
+    route: "/projects/:id/develop",
+  },
+  testing: {
+    label: "测试验证",
+    description: "验证功能、定位问题并完善测试覆盖。",
+    route: "/projects/:id/tests",
+  },
+  deploy: {
+    label: "部署交付",
+    description: "配置部署环境，整理可运行的交付成果。",
+    route: "/projects/:id/deploy",
+  },
+  docs: {
+    label: "毕设文档",
+    description: "沉淀实现过程，编写论文与项目文档。",
+    route: "/projects/:id/docs",
+  },
+  defense: {
+    label: "答辩准备",
+    description: "准备演示材料、答辩讲稿与问题练习。",
+    route: "/projects/:id/defense",
+  },
+} satisfies Record<ProjectStage, { label: string; description: string; route: string }>;
 
-/** 各阶段的落地页;未开放的阶段回落到项目概览。 */
-export const STAGE_ROUTES: Partial<Record<ProjectStage, string>> = {
-  topic: "/projects",
-  requirements: "/projects/:id/requirements",
-  architecture: "/projects/:id/architecture",
-  database: "/projects/:id/database",
-};
+export const STAGE_LABELS = Object.fromEntries(
+  PROJECT_STAGES.map((stage) => [stage, STAGE_METADATA[stage].label]),
+) as Record<ProjectStage, string>;
 
-export const PROJECT_TYPES = [
-  "web",
-  "admin",
-  "miniapp",
-  "ai",
-  "data",
-  "app",
-  "iot",
+export const STAGE_ROUTES = Object.fromEntries(
+  PROJECT_STAGES.map((stage) => [stage, STAGE_METADATA[stage].route]),
+) as Record<ProjectStage, string>;
+
+export function stageRoute(projectId: string, stage: ProjectStage): string {
+  return STAGE_METADATA[stage].route.replace(":id", encodeURIComponent(projectId));
+}
+
+/** 辅助工具贯穿多个阶段，不计入毕业设计阶段。 */
+export const PROJECT_TOOLS = [
+  { key: "agent", label: "自主开发", description: "让 Agent 执行多步开发任务。", path: "/agent" },
+  {
+    key: "run",
+    label: "运行与预览",
+    description: "启动项目，检查运行环境与页面效果。",
+    path: "/run",
+  },
+  { key: "git", label: "版本控制", description: "查看代码变更，管理项目版本。", path: "/git" },
 ] as const;
+
+/** 从真实路由识别阶段；设计与开发共享工作区，通过 query 区分。 */
+export function stageFromPath(
+  projectId: string,
+  pathname: string,
+  designMode = false,
+): ProjectStage | undefined {
+  if (pathname === projectRoute(projectId, "/develop")) return designMode ? "design" : "coding";
+  return PROJECT_STAGES.find((stage) => stageRoute(projectId, stage).split("?")[0] === pathname);
+}
+
+export const PROJECT_TYPES = ["web", "admin", "miniapp", "ai", "data", "app", "iot"] as const;
 
 export type ProjectType = (typeof PROJECT_TYPES)[number];
 

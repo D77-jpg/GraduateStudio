@@ -5,6 +5,7 @@ import Link from "next/link";
 import { signOutAction } from "@/app/(app)/actions";
 import { LogOutIcon, MenuIcon, SettingsIcon } from "@/components/icons";
 import { useUiStore } from "@/stores/ui-store";
+import { ThemeToggle } from "./theme-toggle";
 
 function displayName(name?: string | null, email?: string | null): string {
   return name || email || "用户";
@@ -90,16 +91,12 @@ function UserMenu({ name, email }: { name?: string | null; email?: string | null
   );
 }
 
-export function Topbar({
-  user,
-}: {
-  user: { name?: string | null; email?: string | null } | null;
-}) {
+export function Topbar({ user }: { user: { name?: string | null; email?: string | null } | null }) {
   const pageTitle = useUiStore((s) => s.pageTitle);
   const setMobileNavOpen = useUiStore((s) => s.setMobileNavOpen);
 
   return (
-    <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-zinc-200/80 bg-white/80 px-4 backdrop-blur dark:border-zinc-800/80 dark:bg-zinc-900/70">
+    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-3 border-b border-line bg-surface/85 px-4 backdrop-blur-xl lg:px-8">
       <button
         type="button"
         aria-label="打开导航"
@@ -119,6 +116,7 @@ export function Topbar({
       ) : null}
 
       <div className="ml-auto flex items-center gap-2">
+        <ThemeToggle />
         <UserMenu name={user?.name} email={user?.email} />
       </div>
     </header>
@@ -148,7 +146,7 @@ export function PageHeader({
   return (
     <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight text-zinc-900 dark:text-zinc-50">
+        <h1 className="text-3xl font-semibold tracking-[-.035em] text-foreground md:text-4xl">
           {title}
         </h1>
         {description ? (

@@ -31,13 +31,12 @@ export function TechStackChips({ items, max = 4 }: { items: string[]; max?: numb
 }
 
 export function ProjectCard({ project }: { project: ProjectDto }) {
-  const typeLabel =
-    PROJECT_TYPE_LABELS[project.type as ProjectType] ?? project.type;
+  const typeLabel = PROJECT_TYPE_LABELS[project.type as ProjectType] ?? project.type;
 
   return (
     <Link
       href={`/projects/${project.id}`}
-      className="group flex flex-col rounded-2xl border border-zinc-200 p-5 transition-all hover:border-zinc-300 hover:shadow-sm dark:border-zinc-800 dark:hover:border-zinc-700"
+      className="group flex flex-col rounded-2xl border border-line bg-surface p-6 transition-all hover:-translate-y-0.5 hover:border-accent/40 hover:shadow-md"
     >
       <div className="flex items-center justify-between gap-2">
         <Badge>{typeLabel}</Badge>
@@ -62,12 +61,8 @@ export function ProjectCard({ project }: { project: ProjectDto }) {
       <div className="mt-auto pt-4">
         <Progress value={project.progress} label={`${project.name} 完成度`} />
         <div className="mt-2 flex items-center justify-between text-xs">
-          <span className="text-zinc-500 dark:text-zinc-400">
-            {STAGE_LABELS[project.stage]}
-          </span>
-          <span className="font-medium text-zinc-700 dark:text-zinc-300">
-            {project.progress}%
-          </span>
+          <span className="text-zinc-500 dark:text-zinc-400">{STAGE_LABELS[project.stage]}</span>
+          <span className="font-medium text-zinc-700 dark:text-zinc-300">{project.progress}%</span>
         </div>
       </div>
     </Link>
