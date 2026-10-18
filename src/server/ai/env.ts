@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { aiConfigStore, type SavedAiConfig } from "./config-store";
 
 /**
  * AI Provider 注册表配置。
@@ -17,6 +18,7 @@ const envSchema = z.object({
   AI_OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_API_KEY: z.string().min(1).optional(),
   OPENAI_BASE_URL: z.string().min(1).optional(),
+  AI_BASE_URL: z.string().min(1).optional(),
   ANTHROPIC_API_KEY: z.string().min(1).optional(),
   DEEPSEEK_API_KEY: z.string().min(1).optional(),
   GLM_API_KEY: z.string().min(1).optional(),
@@ -34,9 +36,43 @@ function normalize(source: Record<string, string | undefined>): Record<string, s
   return out;
 }
 
-export function getAiEnv(source: Record<string, string | undefined> = process.env): AiEnv {
-  const parsed = envSchema.safeParse(normalize(source));
-  return parsed.success ? parsed.data : {};
+export function getAiEnv(source?: Record<string, string | undefined>): AiEnv {
+  const parsed = envSchema.safeParse(normalize(source ?? process.env));
+  const env = parsed.success ? parsed.data : {};
+  // Explicit sources remain pure: tests and connection drafts never read persisted state.
+  if (source !== undefined) return env;
+  const saved = aiConfigStore.read();
+  return saved ? overlayAiConfig(env, saved) : env;
+}
+
+export function getProviderApiKey(env: AiEnv, provider: AiProviderId): string | undefined {
+  if (provider === "openai") return getOpenAiApiKey(env);
+  const keys = {
+    anthropic: env.ANTHROPIC_API_KEY,
+    deepseek: env.DEEPSEEK_API_KEY,
+    glm: env.GLM_API_KEY,
+    openrouter: env.OPENROUTER_API_KEY,
+  };
+  return keys[provider];
+}
+
+export function overlayAiConfig(env: AiEnv, config: SavedAiConfig): AiEnv {
+  const out: AiEnv = {
+    ...env,
+    AI_PROVIDER: config.provider,
+    AI_DEFAULT_MODEL: config.model,
+    AI_BASE_URL: config.baseURL || undefined,
+  };
+  // A blank saved baseURL requests the provider default, not a different environment gateway.
+  out.OPENAI_BASE_URL = undefined;
+  if (config.apiKey) {
+    if (config.provider === "openai") out.AI_OPENAI_API_KEY = config.apiKey;
+    else if (config.provider === "anthropic") out.ANTHROPIC_API_KEY = config.apiKey;
+    else if (config.provider === "deepseek") out.DEEPSEEK_API_KEY = config.apiKey;
+    else if (config.provider === "glm") out.GLM_API_KEY = config.apiKey;
+    else out.OPENROUTER_API_KEY = config.apiKey;
+  }
+  return out;
 }
 
 /** openai(及兼容网关)的生效密钥:AI_OPENAI_API_KEY 优先,回退 OPENAI_API_KEY。 */

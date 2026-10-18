@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import { ensureProjectDir, safeJoin } from "@/server/workspace/paths";
 import { db } from "@/server/db";
 import type { Change, ChangeSet } from "@prisma/client";
 import {
@@ -74,13 +76,80 @@ function safeParsePlan(
   return [];
 }
 
-async function loadOwnedChangeSet(changeSetId: string, userId: string) {
+async function loadOwnedChangeSet(changeSetId: string, userId: string, projectId?: string) {
   const changeSet = await db.changeSet.findFirst({
-    where: { id: changeSetId, project: { userId } },
+    where: { id: changeSetId, project: { userId }, ...(projectId ? { projectId } : {}) },
     include: { changes: true },
   });
   if (!changeSet) throw new ChangeSetAccessError("变更集不存在或无权访问");
   return changeSet;
+}
+
+// Shared across module reloads in this process only; NOT a multi-process/distributed lock.
+const processState = globalThis as typeof globalThis & {
+  changeSetProjectLocks?: Map<string, Promise<void>>;
+};
+const projectLocks = (processState.changeSetProjectLocks ??= new Map());
+
+async function withProjectMutation<T>(projectId: string, operation: () => Promise<T>): Promise<T> {
+  const previous = projectLocks.get(projectId) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => { release = resolve; });
+  projectLocks.set(projectId, current);
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (projectLocks.get(projectId) === current) projectLocks.delete(projectId);
+  }
+}
+
+/** Validate every baseline before the first write; a truncated read is not a baseline. */
+function preflightPending(changeSet: { projectId: string; changes: Change[] }, userId: string) {
+  const snapshots: Array<{ path: string; content: string | null; change: Change }> = [];
+  for (const change of changeSet.changes) {
+    const path = normalizeRelPath(change.path);
+    if (snapshots.some((entry) => entry.path === path ||
+      entry.path.startsWith(`${path}/`) || path.startsWith(`${entry.path}/`))) {
+      throw new ChangeSetStateError(`变更集路径重复或冲突: ${path}`);
+    }
+    if ((change.action === "create" && change.beforeContent !== null) ||
+      ((change.action === "modify" || change.action === "delete") && change.beforeContent === null) ||
+      !["create", "modify", "delete"].includes(change.action) ||
+      (change.action !== "delete" && change.afterContent === null)) {
+      throw new ChangeSetStateError(`变更内容不完整: ${path}`);
+    }
+    // fileExists alone treats directories and some IO errors as "absent". Never
+    // overwrite a non-file target or traverse symlinks during apply/compensation.
+    const projectDir = ensureProjectDir(changeSet.projectId);
+    const segments = path.split("/");
+    for (let index = 0; index < segments.length; index++) {
+      const absolute = safeJoin(projectDir, ...segments.slice(0, index + 1));
+      let stat;
+      try {
+        stat = fs.lstatSync(absolute);
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw error;
+      }
+      if (stat.isSymbolicLink() ||
+        (index === segments.length - 1 ? !stat.isFile() : !stat.isDirectory())) {
+        throw new ChangeSetStateError(`文件路径被占用或不安全: ${path}`);
+      }
+    }
+    let content: string | null = null;
+    if (fileExists(changeSet.projectId, userId, path)) {
+      const file = readFileContent(changeSet.projectId, userId, path);
+      if (file.truncated) throw new ChangeSetStateError(`文件过大,无法安全确认基线: ${path}`);
+      content = file.content;
+    }
+    if (content !== change.beforeContent) {
+      throw new ChangeSetStateError(`文件已发生变化,请重新生成变更集: ${path}`);
+    }
+    snapshots.push({ path, content, change });
+  }
+  return snapshots;
 }
 
 /** 把一组变更落盘(create/modify 写文件,delete 删文件)。调用方负责校验状态。 */
@@ -114,6 +183,8 @@ export async function createPendingChangeSet(input: {
   summary: string;
   plan: Array<{ action: ChangeAction; path: string; reason?: string }>;
   changes: Array<{ path: string; action: ChangeAction; content: string }>;
+  /** Immutable generation baseline; missing own keys mean the file did not exist. */
+  expectedBaseline?: Record<string, string>;
 }): Promise<ChangeSetDto> {
   const { projectId, userId } = input;
   const seen = new Map<string, ChangeAction>();
@@ -133,17 +204,26 @@ export async function createPendingChangeSet(input: {
 
   for (const change of input.changes) {
     const path = normalizeRelPath(change.path);
-    if (change.action === "delete") {
-      const before = fileExists(projectId, userId, path)
-        ? readFileContent(projectId, userId, path).content
+    const live = fileExists(projectId, userId, path)
+      ? readFileContent(projectId, userId, path)
+      : null;
+    let before = live?.content ?? null;
+    if (input.expectedBaseline !== undefined) {
+      const expected = Object.prototype.hasOwnProperty.call(input.expectedBaseline, path)
+        ? input.expectedBaseline[path]
         : null;
+      if (live?.truncated || before !== expected) {
+        throw new ChangeSetStateError(`文件已发生变化,拒绝创建旧基线变更集: ${path}`);
+      }
+      // Never adopt a newer disk read as the authoritative generation baseline.
+      // Edits after this check remain conflicts at accept, not silent rebases.
+      before = expected;
+    }
+    if (change.action === "delete") {
       if (before === null) throw new ChangeSetStateError(`无法删除不存在的文件: ${path}`);
       rows.push({ path, action: "delete", beforeContent: before, afterContent: null });
       continue;
     }
-    const before = fileExists(projectId, userId, path)
-      ? readFileContent(projectId, userId, path).content
-      : null;
     rows.push({
       path,
       action: resolveAction(before, change.content) ?? "modify",
@@ -266,40 +346,82 @@ export async function recordManualDelete(input: {
   return toDto(changeSet, changeSet.changes);
 }
 
-/** Accept:pending 变更集写盘生效。 */
-export async function acceptChangeSet(changeSetId: string, userId: string): Promise<ChangeSetDto> {
-  const changeSet = await loadOwnedChangeSet(changeSetId, userId);
-  if (changeSet.status !== "pending") {
-    throw new ChangeSetStateError("只有待确认的变更集可以接受");
-  }
-  await applyChangesToDisk(changeSet.projectId, userId, changeSet.changes);
-  const updated = await db.changeSet.update({
-    where: { id: changeSet.id },
-    data: { status: "accepted", appliedAt: new Date() },
-    include: { changes: true },
+/**
+ * Accept: validate all pending baselines, then apply with same-process compensation.
+ * Filesystem writes and the DB commit are NOT atomic: a crash/kill between them can
+ * leave files applied while the row remains pending. This is not crash recovery.
+ * External editors/manual saves and other server processes do not share this lock.
+ */
+export async function acceptChangeSet(
+  changeSetId: string, userId: string, projectId?: string,
+): Promise<ChangeSetDto> {
+  const owned = await loadOwnedChangeSet(changeSetId, userId, projectId);
+  return withProjectMutation(owned.projectId, async () => {
+    // Re-read under the shared accept/reject lock, never trust the pre-lock status.
+    const changeSet = await loadOwnedChangeSet(changeSetId, userId, projectId);
+    if (changeSet.status !== "pending") {
+      throw new ChangeSetStateError("只有待确认的变更集可以接受");
+    }
+    const snapshots = preflightPending(changeSet, userId);
+    const attempted: typeof snapshots = [];
+    let updated;
+    try {
+      for (const snapshot of snapshots) {
+        // Include the failing operation: a writer can throw after partially writing.
+        attempted.push(snapshot);
+        if (snapshot.change.action === "delete") {
+          deleteFile(changeSet.projectId, userId, snapshot.path);
+        } else {
+          writeFileContent(changeSet.projectId, userId, snapshot.path, snapshot.change.afterContent!);
+        }
+      }
+      updated = await db.changeSet.update({
+        where: { id: changeSet.id },
+        data: { status: "accepted", appliedAt: new Date() },
+        include: { changes: true },
+      });
+    } catch (error) {
+      const rollbackErrors: unknown[] = [];
+      for (const snapshot of attempted.reverse()) {
+        try {
+          if (snapshot.content === null) deleteFile(changeSet.projectId, userId, snapshot.path);
+          else writeFileContent(changeSet.projectId, userId, snapshot.path, snapshot.content);
+        } catch (rollbackError) {
+          rollbackErrors.push(rollbackError);
+        }
+      }
+      if (rollbackErrors.length) {
+        throw new AggregateError([error, ...rollbackErrors], "变更应用失败且回滚不完整,请检查工作区");
+      }
+      throw error;
+    }
+    // Post-commit activity failure must never roll back already accepted files.
+    await logActivity(
+      changeSet.projectId, "file", `应用变更集:${changeSet.title}`,
+      `写入 ${changeSet.changes.length} 个文件`,
+    );
+    return toDto(updated, updated.changes);
   });
-  await logActivity(
-    changeSet.projectId,
-    "file",
-    `应用变更集:${changeSet.title}`,
-    `写入 ${changeSet.changes.length} 个文件`,
-  );
-  return toDto(updated, updated.changes);
 }
 
-/** Reject:丢弃 pending 变更集,不写盘。 */
-export async function rejectChangeSet(changeSetId: string, userId: string): Promise<ChangeSetDto> {
-  const changeSet = await loadOwnedChangeSet(changeSetId, userId);
-  if (changeSet.status !== "pending") {
-    throw new ChangeSetStateError("只有待确认的变更集可以拒绝");
-  }
-  const updated = await db.changeSet.update({
-    where: { id: changeSet.id },
-    data: { status: "rejected" },
-    include: { changes: true },
+/** Reject:丢弃 pending 变更集,不写盘。Shares the accept project's process mutex. */
+export async function rejectChangeSet(
+  changeSetId: string, userId: string, projectId?: string,
+): Promise<ChangeSetDto> {
+  const owned = await loadOwnedChangeSet(changeSetId, userId, projectId);
+  return withProjectMutation(owned.projectId, async () => {
+    const changeSet = await loadOwnedChangeSet(changeSetId, userId, projectId);
+    if (changeSet.status !== "pending") {
+      throw new ChangeSetStateError("只有待确认的变更集可以拒绝");
+    }
+    const updated = await db.changeSet.update({
+      where: { id: changeSet.id },
+      data: { status: "rejected" },
+      include: { changes: true },
+    });
+    await logActivity(changeSet.projectId, "ai", `拒绝变更集:${changeSet.title}`);
+    return toDto(updated, updated.changes);
   });
-  await logActivity(changeSet.projectId, "ai", `拒绝变更集:${changeSet.title}`);
-  return toDto(updated, updated.changes);
 }
 
 /** Undo:撤销最近一次已应用(且未被撤销)的变更集,写盘回滚。 */
@@ -344,8 +466,10 @@ export async function undoLatestChangeSet(
 }
 
 /** Restore:恢复最近一次被撤销的变更集(重新写盘)。 */
-export async function restoreChangeSet(changeSetId: string, userId: string): Promise<ChangeSetDto> {
-  const changeSet = await loadOwnedChangeSet(changeSetId, userId);
+export async function restoreChangeSet(
+  changeSetId: string, userId: string, projectId?: string,
+): Promise<ChangeSetDto> {
+  const changeSet = await loadOwnedChangeSet(changeSetId, userId, projectId);
   if (changeSet.status !== "undone") {
     throw new ChangeSetStateError("只有被撤销的变更集可以恢复");
   }

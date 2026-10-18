@@ -6,6 +6,9 @@ import fs from "node:fs";
 import path from "node:path";
 import { resolveProjectDir } from "@/server/workspace/paths";
 import { logActivity } from "@/server/activity";
+import { detectBackend, externalApiTarget, waitForRuntimeHttp } from "./companion-backend";
+import { detectPythonStack, startPythonStack, stopPythonStack } from "./python-stack";
+import { frontendRuntimeEnvironment } from "./runtime-environment";
 
 /**
  * Phase 6:项目 Runtime 进程管理器。
@@ -36,6 +39,14 @@ interface RuntimeProcess {
   projectId: string;
   proc: ChildProcess | null;
   buildProc: ChildProcess | null;
+  backendProc: ChildProcess | null;
+  backend: BackendStatusInfo | null;
+  generation: number;
+  startupAbort?: AbortController;
+  pythonStack?: { target: string; assertHealthy: () => Promise<void> };
+  healthTimer?: ReturnType<typeof setInterval>;
+  healthChecking?: boolean;
+  cleanupPromise?: Promise<void>;
   port: number;
   status: RuntimeStatus;
   exitCode: number | null;
@@ -63,29 +74,39 @@ function appendLog(rp: RuntimeProcess, stream: LogEntry["stream"], text: string)
   }
 }
 
-/** 项目稳定基口(不探测,用于重启后接管判断) */
-function basePortOf(projectId: string): number {
-  let hash = 0;
-  for (const ch of projectId) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
-  return PORT_BASE + (hash % PORT_RANGE);
-}
-
 /** 端口分配:项目稳定基口 + 占用顺延探测 */
 async function allocatePort(projectId: string): Promise<number> {
   let hash = 0;
   for (const ch of projectId) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
   let port = PORT_BASE + (hash % PORT_RANGE);
   for (let i = 0; i < 10; i++) {
-    const free = await new Promise<boolean>((resolve) => {
-      const probe = net.createServer();
-      probe.once("error", () => resolve(false));
-      probe.once("listening", () => probe.close(() => resolve(true)));
-      probe.listen(port);
-    });
+    const availableOn = (host: string) =>
+      new Promise<boolean>((resolve) => {
+        const probe = net.createServer();
+        probe.once("error", (error: NodeJS.ErrnoException) =>
+          resolve(host === "::1" && error.code === "EAFNOSUPPORT"),
+        );
+        probe.once("listening", () => probe.close(() => resolve(true)));
+        probe.listen({ port, host, exclusive: true });
+      });
+    const occupiedOn = (host: string) =>
+      new Promise<boolean>((resolve) => {
+        const socket = net.connect({ port, host });
+        const done = (occupied: boolean) => {
+          socket.destroy();
+          resolve(occupied);
+        };
+        socket.once("connect", () => done(true));
+        socket.once("error", () => done(false));
+        socket.setTimeout(500, () => done(true)); // Uncertain occupancy is not safe to reuse.
+      });
+    // Windows reuse semantics can allow bind probes despite an existing listener.
+    const occupied = (await occupiedOn("127.0.0.1")) || (await occupiedOn("::1"));
+    const free = !occupied && (await availableOn("127.0.0.1")) && (await availableOn("::1"));
     if (free) return port;
     port = port >= PORT_BASE + PORT_RANGE ? PORT_BASE : port + 1;
   }
-  return port;
+  throw new Error("No free runtime port available.");
 }
 
 function getOrCreate(projectId: string): RuntimeProcess {
@@ -95,6 +116,9 @@ function getOrCreate(projectId: string): RuntimeProcess {
       projectId,
       proc: null,
       buildProc: null,
+      backendProc: null,
+      backend: null,
+      generation: 0,
       port: 0,
       status: "stopped",
       exitCode: null,
@@ -109,26 +133,6 @@ function getOrCreate(projectId: string): RuntimeProcess {
   return rp;
 }
 
-/** 按端口找监听进程 PID(Windows netstat -ano) */
-async function findListenerPid(port: number): Promise<number | null> {
-  try {
-    const { stdout } = await execFileAsync("netstat", ["-ano"], {
-      windowsHide: true,
-      maxBuffer: 1024 * 1024,
-    });
-    const marker = ":" + port + " ";
-    for (const line of stdout.split("\n")) {
-      if (!line.includes(marker) || !/LISTENING/i.test(line)) continue;
-      const parts = line.trim().split(/\s+/);
-      const pid = Number(parts[parts.length - 1]);
-      if (Number.isFinite(pid) && pid > 0) return pid;
-    }
-  } catch {
-    /* 解析失败忽略 */
-  }
-  return null;
-}
-
 /** Windows 下杀整棵进程树 */
 async function killTree(pid: number): Promise<void> {
   if (process.platform === "win32") {
@@ -136,43 +140,33 @@ async function killTree(pid: number): Promise<void> {
       () => {},
     );
   } else {
-    await execFileAsync("kill", ["-9", String(pid)]).catch(() => {});
+    // Runtime children start in their own process group on POSIX.
+    await execFileAsync("kill", ["-9", "--", `-${pid}`]).catch(() =>
+      execFileAsync("kill", ["-9", String(pid)]).catch(() => {}),
+    );
   }
-}
-
-function probePort(port: number, host: string): Promise<boolean> {
-  return new Promise((resolve) => {
-    const req = net.connect(port, host);
-    req.once("connect", () => {
-      req.destroy();
-      resolve(true);
-    });
-    req.once("error", () => resolve(false));
-    req.setTimeout(1500, () => {
-      req.destroy();
-      resolve(false);
-    });
-  });
-}
-
-/** 双栈探测:vite/框架可能只绑 IPv6(::1)或 IPv4(127.0.0.1) */
-async function waitForHttp(port: number, timeoutMs = 45_000): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    const v4 = await probePort(port, "127.0.0.1");
-    if (v4) return true;
-    const v6 = await probePort(port, "::1");
-    if (v6) return true;
-    await sleep(500);
-  }
-  return false;
 }
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+export interface BackendStatusInfo {
+  managed: boolean;
+  target: string;
+  pid: number | null;
+  status: "starting" | "running" | "failed" | "stopped";
+  ready: boolean;
+  error: string | null;
+  /** Python stacks additionally verify the isolated database, cache and workers. */
+  healthScope: "http" | "services";
+  stack?: "python";
+  services?: Array<{ name: string; status: "starting" | "running" | "failed" | "stopped" }>;
+}
+
 export interface RuntimeStatusInfo {
+  ready: boolean;
+  backend: BackendStatusInfo | null;
   status: RuntimeStatus;
   port: number | null;
   pid: number | null;
@@ -188,6 +182,8 @@ export function getRuntimeStatus(projectId: string): RuntimeStatusInfo {
   if (!rp || (rp.status === "stopped" && !rp.proc)) {
     return {
       status: "stopped",
+      ready: false,
+      backend: rp?.backend ?? null,
       port: null,
       pid: null,
       previewUrl: null,
@@ -199,6 +195,8 @@ export function getRuntimeStatus(projectId: string): RuntimeStatusInfo {
   }
   return {
     status: rp.building ? "building" : rp.status,
+    ready: rp.ready,
+    backend: rp.backend,
     port: rp.port || null,
     pid: rp.proc?.pid ?? null,
     previewUrl: rp.status === "running" ? `http://localhost:${rp.port}` : null,
@@ -220,120 +218,165 @@ export function getLogsSince(
 
 const clip = (s: string, n: number) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
-/** 依赖自愈:node_modules 缺失自动安装;dev server 二进制缺失补装 vite */
+/** 检查项目自身的全部运行/开发依赖;不从宿主或祖先 node_modules 借包。 */
 async function ensureDeps(
   rp: RuntimeProcess,
-  projectDir: string,
+  _projectDir: string,
   clientDir: string,
 ): Promise<void> {
   const clientNodeModules = path.join(clientDir, "node_modules");
   const pkgPath = path.join(clientDir, "package.json");
   if (!fs.existsSync(pkgPath)) return;
-
-  if (!fs.existsSync(clientNodeModules)) {
-    appendLog(rp, "system", "[runtime] 未检测到 node_modules,自动执行 npm install…");
-    try {
-      const { stdout } = await execFileAsync(
-        "npm",
-        ["install", "--no-audit", "--no-fund", "--loglevel", "error"],
-        {
-          cwd: clientDir,
-          timeout: 600_000,
-          windowsHide: true,
-          maxBuffer: 8 * 1024 * 1024,
-          shell: process.platform === "win32",
-        },
-      );
-      appendLog(rp, "system", `[runtime] npm install 完成\n${stdout.slice(0, 500)}`);
-    } catch (e) {
-      const err = e as { stderr?: string; message?: string };
-      appendLog(
-        rp,
-        "system",
-        `[runtime] npm install 失败:${clip(err.stderr || err.message || "", 800)}`,
-      );
-    }
-  }
-
-  // dev script 需要的本地二进制(如 vite)缺失时补装
   const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf8")) as {
     scripts?: Record<string, string>;
+    dependencies?: Record<string, string>;
     devDependencies?: Record<string, string>;
+    optionalDependencies?: Record<string, string>;
   };
-  const devScript = pkg.scripts?.dev ?? "";
-  const binName = devScript.split(/\s+/)[0];
+  // npm permits optional packages to be absent (e.g. platform-specific packages).
+  const declared = new Set(
+    [...Object.keys(pkg.dependencies ?? {}), ...Object.keys(pkg.devDependencies ?? {})].filter(
+      (name) => !Object.hasOwn(pkg.optionalDependencies ?? {}, name),
+    ),
+  );
+  for (const name of declared) {
+    // Never let a manifest key escape node_modules, including on Windows.
+    if (
+      !/^(?:@[^/\\]+\/)?[^/\\]+$/.test(name) ||
+      name.split("/").some((part) => part === "." || part === ".." || part.includes(":"))
+    ) {
+      throw new Error(`Invalid dependency name: ${name}`);
+    }
+  }
+  const binName = (pkg.scripts?.dev ?? "").trim().split(/\s+/)[0];
   const binPath = path.join(
     clientNodeModules,
     ".bin",
     binName + (process.platform === "win32" ? ".cmd" : ""),
   );
-  if (binName && pkg.devDependencies?.[binName] && !fs.existsSync(binPath)) {
-    appendLog(rp, "system", `[runtime] 检测到 ${binName} 未安装,自动补装…`);
-    try {
-      await execFileAsync("npm", ["install", "-D", binName, "--loglevel", "error"], {
+  const missingDeps = () => {
+    const missing = [...declared].filter(
+      (name) => !fs.existsSync(path.join(clientNodeModules, name, "package.json")),
+    );
+    // Preserve support for old scripts, but never satisfy their CLI via host PATH.
+    if (declared.has(binName) && !fs.existsSync(binPath)) missing.push(`.bin/${binName}`);
+    return missing;
+  };
+  const missing = missingDeps();
+  if (fs.existsSync(clientNodeModules) && missing.length === 0) return;
+
+  appendLog(
+    rp,
+    "system",
+    `[runtime] 项目依赖缺失(${missing.join(", ") || "node_modules"}),自动执行 npm install…`,
+  );
+  // A production Next host and npm-run's lower-case npm_config_* must not omit
+  // devDependencies, redirect installation globally, or turn it into a dry run.
+  // Keep registry/proxy routing without exposing platform credentials to project programs.
+  const env: NodeJS.ProcessEnv = { ...frontendRuntimeEnvironment() };
+  // npm registry routing is not passed to project dev scripts.
+  for (const [key, value] of Object.entries(process.env))
+    if (/^npm_config_registry$/i.test(key)) env[key] = value;
+  for (const key of Object.keys(env)) {
+    if (
+      /^npm_config_(?:omit|include|production|only|also|global|prefix|location|workspace|workspaces|dry_run|package_lock_only|bin_links|save)$/i.test(
+        key,
+      )
+    ) {
+      delete env[key];
+    }
+  }
+  try {
+    const { stdout } = await execFileAsync(
+      "npm",
+      [
+        "install",
+        "--include=dev",
+        "--include=prod",
+        "--production=false",
+        "--global=false",
+        "--workspaces=false",
+        "--dry-run=false",
+        "--package-lock-only=false",
+        "--bin-links=true",
+        "--save=false",
+        "--no-audit",
+        "--no-fund",
+        "--loglevel",
+        "error",
+      ],
+      {
         cwd: clientDir,
+        env,
         timeout: 600_000,
         windowsHide: true,
         maxBuffer: 8 * 1024 * 1024,
         shell: process.platform === "win32",
-      });
-      appendLog(rp, "system", `[runtime] ${binName} 安装完成`);
-    } catch (e) {
-      const err = e as { stderr?: string; message?: string };
-      appendLog(
-        rp,
-        "system",
-        `[runtime] ${binName} 安装失败:${clip(err.stderr || err.message || "", 800)}`,
-      );
-    }
+      },
+    );
+    appendLog(rp, "system", `[runtime] npm install 完成\n${stdout.slice(0, 500)}`);
+  } catch (e) {
+    const err = e as { stderr?: string; message?: string };
+    throw new Error(`npm install 失败:${clip(err.stderr || err.message || "", 800)}`);
   }
-
-  // vite 配置 import 的插件(如 @vitejs/plugin-vue)缺失时全量补装,
-  // 避免"node_modules 半装"状态下 dev server 起来后配置加载失败
-  const configPath = ["vite.config.js", "vite.config.mjs", "vite.config.ts"]
-    .map((f) => path.join(clientDir, f))
-    .find((f) => fs.existsSync(f));
-  if (configPath) {
-    const src = fs.readFileSync(configPath, "utf8");
-    const imports = [...src.matchAll(/(?:from\s*|import\s*[\s(]*)["']([^."'][^"']*)["']/g)]
-      .map((m) => m[1])
-      .filter((spec) => !spec.startsWith("node:"));
-    const missing = [...new Set(imports)].filter((spec) => {
-      const name = spec.startsWith("@")
-        ? spec.split("/").slice(0, 2).join("/")
-        : spec.split("/")[0];
-      return !fs.existsSync(path.join(clientNodeModules, name, "package.json"));
-    });
-    if (missing.length) {
-      appendLog(rp, "system", `[runtime] vite 配置依赖缺失(${missing.join(", ")}),自动补装…`);
-      try {
-        await execFileAsync("npm", ["install", "--no-audit", "--no-fund", "--loglevel", "error"], {
-          cwd: clientDir,
-          timeout: 600_000,
-          windowsHide: true,
-          maxBuffer: 8 * 1024 * 1024,
-          shell: process.platform === "win32",
-        });
-        appendLog(rp, "system", "[runtime] 依赖补装完成");
-      } catch (e) {
-        const err = e as { stderr?: string; message?: string };
-        appendLog(
-          rp,
-          "system",
-          `[runtime] 依赖补装失败:${clip(err.stderr || err.message || "", 800)}`,
-        );
-      }
-    }
+  // npm exit 0 is not proof: omission/configuration or an incomplete installation
+  // can leave required packages missing. Fail before executing any project script.
+  const remaining = missingDeps();
+  if (remaining.length) {
+    throw new Error(`npm install 后项目依赖仍缺失:${remaining.join(", ")}`);
   }
 }
 
+const startupOperations = new Map<string, Promise<RuntimeStatusInfo>>();
+const stoppingOperations = new Map<string, Promise<RuntimeStatusInfo>>();
+/** Same-project starts share one operation; stop waits for its aborted cleanup before a restart. */
+export function startRuntime(projectId: string, userId: string): Promise<RuntimeStatusInfo> {
+  const pending = startupOperations.get(projectId);
+  if (pending) return pending;
+  const stopping = stoppingOperations.get(projectId);
+  if (stopping) return stopping.then(() => startRuntime(projectId, userId));
+  const operation = startRuntimeInternal(projectId, userId)
+    .catch((error) => {
+      const rp = processes.get(projectId);
+      if (rp) {
+        rp.status = "failed";
+        rp.ready = false;
+        appendLog(rp, "system", "[runtime] 启动未完成，请查看服务准备阶段或重试。");
+      }
+      throw error;
+    })
+    .finally(() => {
+      if (startupOperations.get(projectId) === operation) startupOperations.delete(projectId);
+    });
+  startupOperations.set(projectId, operation);
+  return operation;
+}
 /** 启动项目 dev server(真实子进程)。 */
-export async function startRuntime(projectId: string, userId: string): Promise<RuntimeStatusInfo> {
+async function startRuntimeInternal(projectId: string, userId: string): Promise<RuntimeStatusInfo> {
   void userId; // 归属校验在路由层完成
   const rp = getOrCreate(projectId);
-  if (rp.proc && (rp.status === "running" || rp.status === "starting")) {
-    return getRuntimeStatus(projectId);
-  }
+  if (rp.cleanupPromise) await rp.cleanupPromise;
+  if (rp.status === "running" || rp.status === "starting") return getRuntimeStatus(projectId);
+  // Reserve state synchronously before cleanup to make status truthful during slow Docker cleanup.
+  rp.status = "starting";
+  rp.ready = false;
+  // Clean up failed attempts before retrying; never leave a companion process behind.
+  rp.startupAbort?.abort();
+  const generation = ++rp.generation;
+  const startupAbort = new AbortController();
+  rp.startupAbort = startupAbort;
+  const cancelled = () => rp.generation !== generation || rp.status === "stopped";
+  if (rp.healthTimer) clearInterval(rp.healthTimer);
+  rp.healthTimer = undefined;
+  if (rp.pythonStack || detectPythonStack(resolveProjectDir(projectId)))
+    await stopPythonStack(projectId);
+  rp.pythonStack = undefined;
+  if (rp.proc?.pid) await killTree(rp.proc.pid);
+  if (rp.backendProc?.pid) await killTree(rp.backendProc.pid);
+  rp.proc = null;
+  rp.backendProc = null;
+  rp.backend = null;
+  if (cancelled()) return getRuntimeStatus(projectId);
 
   const projectDir = resolveProjectDir(projectId);
   const clientDir = path.join(projectDir, "client");
@@ -353,26 +396,204 @@ export async function startRuntime(projectId: string, userId: string): Promise<R
   rp.startedAt = Date.now();
   appendLog(rp, "system", `[runtime] 正在启动项目…`);
 
-  await ensureDeps(rp, projectDir, clientDir);
-
-  // 主服务重启后内存态丢失,但旧 dev server 进程可能仍在:基口有响应则直接接管
-  const basePort = basePortOf(projectId);
-  if (await waitForHttp(basePort, 800)) {
-    rp.port = basePort;
-    rp.status = "running";
-    rp.ready = true;
-    appendLog(rp, "system", `[runtime] 检测到既有 dev server(端口 ${basePort}),直接接管`);
-    await logActivity(projectId, "system", `接管运行中的 dev server:http://localhost:${basePort}`);
+  let apiTarget: string | null = null;
+  try {
+    await ensureDeps(rp, projectDir, clientDir);
+    if (cancelled()) return getRuntimeStatus(projectId);
+    apiTarget = externalApiTarget(projectDir);
+    const plan = apiTarget ? null : detectBackend(projectDir);
+    if (!apiTarget && !plan && detectPythonStack(projectDir)) {
+      const backendPort = await allocatePort(`${projectId}:python`);
+      apiTarget = `http://127.0.0.1:${backendPort}`;
+      rp.backend = {
+        managed: true,
+        target: apiTarget,
+        pid: null,
+        status: "starting",
+        ready: false,
+        error: null,
+        healthScope: "services",
+        stack: "python",
+        services: ["MySQL", "Redis", "FastAPI", "Worker", "Beat"].map((name) => ({
+          name,
+          status: "starting",
+        })),
+      };
+      rp.pythonStack = await startPythonStack({
+        projectId,
+        projectDir,
+        port: backendPort,
+        signal: startupAbort.signal,
+        log: (message) => appendLog(rp, "system", message),
+      });
+      if (cancelled()) {
+        await stopPythonStack(projectId);
+        return getRuntimeStatus(projectId);
+      }
+      await rp.pythonStack.assertHealthy();
+      rp.backend.ready = true;
+      rp.backend.status = "running";
+      rp.backend.services = rp.backend.services?.map((service) => ({
+        ...service,
+        status: "running",
+      }));
+    } else if (plan) {
+      await ensureDeps(rp, projectDir, plan.directory);
+      if (cancelled()) return getRuntimeStatus(projectId);
+      const backendPort = await allocatePort(`${projectId}:backend`);
+      apiTarget = `http://127.0.0.1:${backendPort}`;
+      rp.backend = {
+        managed: true,
+        target: apiTarget,
+        pid: null,
+        status: "starting",
+        ready: false,
+        error: null,
+        healthScope: "http",
+      };
+      const backendProc = spawn("npm", ["run", plan.script], {
+        cwd: plan.directory,
+        env: {
+          ...plan.env,
+          PORT: String(backendPort),
+          APP_PORT: String(backendPort),
+          HOST: "127.0.0.1",
+          FORCE_COLOR: "0",
+          NO_COLOR: "1",
+        },
+        shell: process.platform === "win32",
+        windowsHide: true,
+        detached: process.platform !== "win32",
+      });
+      rp.backendProc = backendProc;
+      rp.backend.pid = backendProc.pid ?? null;
+      appendLog(
+        rp,
+        "system",
+        `[backend] npm run ${plan.script}, target ${apiTarget}; HTTP health does not verify database prerequisites.`,
+      );
+      backendProc.stdout?.on("data", (chunk: Buffer) =>
+        appendLog(rp, "stdout", `[backend] ${chunk.toString("utf8")}`),
+      );
+      backendProc.stderr?.on("data", (chunk: Buffer) =>
+        appendLog(rp, "stderr", `[backend] ${chunk.toString("utf8")}`),
+      );
+      const backendFailed = (message: string) => {
+        if (rp.backendProc !== backendProc || cancelled()) return;
+        rp.backend!.status = "failed";
+        rp.backend!.ready = false;
+        rp.backend!.error = message;
+        rp.ready = false;
+        rp.status = "failed";
+        appendLog(
+          rp,
+          "system",
+          `[backend] ${message}; check backend logs and project .env prerequisites.`,
+        );
+        if (rp.proc?.pid) void killTree(rp.proc.pid);
+      };
+      backendProc.on("error", (error) => backendFailed(`Spawn failed: ${error.message}`));
+      backendProc.on("exit", (code) => backendFailed(`Backend exited (${code})`));
+    } else if (apiTarget) {
+      rp.backend = {
+        managed: false,
+        target: apiTarget,
+        pid: null,
+        status: "starting",
+        ready: false,
+        error: null,
+        healthScope: "http",
+      };
+      appendLog(
+        rp,
+        "system",
+        `[backend] 使用项目显式配置的外部后端 ${apiTarget}; runtime 不负责停止该服务。`,
+      );
+    }
+    if (!plan && !apiTarget) {
+      const serverDir = path.join(projectDir, "server");
+      if (
+        ["requirements.txt", "requirements-dev.txt", "pyproject.toml"].some((file) =>
+          fs.existsSync(path.join(serverDir, file)),
+        )
+      ) {
+        appendLog(
+          rp,
+          "system",
+          "[runtime] 当前仅启动前端；Python 后端尚未配置/启动，页面可预览不代表接口可用。",
+        );
+      }
+    }
+    if (apiTarget && !rp.pythonStack) {
+      const health = await waitForRuntimeHttp(
+        `${apiTarget}/api/health`,
+        45000,
+        () => cancelled() || rp.status === "failed",
+        true,
+      );
+      if (cancelled()) return getRuntimeStatus(projectId);
+      const backendReady = health.ready && getRuntimeStatus(projectId).status !== "failed";
+      rp.backend!.ready = backendReady;
+      rp.backend!.status = backendReady ? "running" : "failed";
+      rp.backend!.error = health.error ?? rp.backend!.error;
+      if (!backendReady)
+        throw new Error(
+          `Backend HTTP health failed: ${rp.backend!.error}. Check project .env and backend prerequisites.`,
+        );
+    }
+  } catch (error) {
+    if (cancelled()) return getRuntimeStatus(projectId);
+    rp.status = "failed";
+    rp.ready = false;
+    appendLog(
+      rp,
+      "system",
+      `[runtime] ${error instanceof Error ? error.message : "Backend startup failed"}`,
+    );
+    if (rp.backendProc?.pid) await killTree(rp.backendProc.pid);
+    if (rp.backend?.stack === "python") {
+      rp.backend.status = "failed";
+      rp.backend.ready = false;
+      rp.backend.error = error instanceof Error ? error.message : "Python stack startup failed";
+      rp.backend.services = rp.backend.services?.map((service) => ({
+        ...service,
+        status: "failed",
+      }));
+      await stopPythonStack(projectId);
+      rp.pythonStack = undefined;
+    }
     return getRuntimeStatus(projectId);
   }
+  if (cancelled()) return getRuntimeStatus(projectId);
 
-  const port = await allocatePort(projectId);
+  // Never adopt an arbitrary port listener: it may be a different project or stale API proxy.
+  let port: number;
+  try {
+    port = await allocatePort(projectId);
+  } catch (error) {
+    rp.status = "failed";
+    rp.ready = false;
+    if (rp.pythonStack) await stopPythonStack(projectId);
+    throw error;
+  }
+  if (cancelled()) return getRuntimeStatus(projectId);
   rp.port = port;
 
   const proc = spawn("npm", ["run", "dev", "--", "--port", String(port), "--strictPort"], {
     cwd: clientDir,
-    env: { ...process.env, PORT: String(port), FORCE_COLOR: "0", NO_COLOR: "1", BROWSER: "none" },
-    shell: true,
+    env: {
+      ...frontendRuntimeEnvironment(),
+      NODE_ENV: "development",
+      PORT: String(port),
+      FORCE_COLOR: "0",
+      NO_COLOR: "1",
+      BROWSER: "none",
+      ...(apiTarget
+        ? { VITE_DEV_API_TARGET: apiTarget, VITE_API_PROXY_TARGET: apiTarget, VITE_DEV_PROXY: "on" }
+        : {}),
+    },
+    shell: process.platform === "win32",
+    detached: process.platform !== "win32",
     windowsHide: true,
   });
   rp.proc = proc;
@@ -385,44 +606,132 @@ export async function startRuntime(projectId: string, userId: string): Promise<R
 
   proc.stdout?.on("data", (chunk: Buffer) => appendLog(rp, "stdout", chunk.toString("utf8")));
   proc.stderr?.on("data", (chunk: Buffer) => appendLog(rp, "stderr", chunk.toString("utf8")));
+  proc.on("error", (error) => {
+    if (rp.proc !== proc || cancelled()) return;
+    rp.status = "failed";
+    rp.ready = false;
+    appendLog(rp, "system", `[runtime] Spawn failed: ${error.message}`);
+  });
   proc.on("exit", (code) => {
+    if (rp.proc !== proc || cancelled()) return;
+    rp.ready = false;
+    if (rp.backendProc?.pid) void killTree(rp.backendProc.pid);
     rp.exitCode = code;
     if (rp.status !== "stopped") {
       rp.status = code === 0 ? "exited" : "failed";
       appendLog(rp, "system", `[runtime] 进程退出,exit code = ${code}`);
     }
     rp.proc = null;
+    if (rp.healthTimer) clearInterval(rp.healthTimer);
+    if (rp.pythonStack && !rp.cleanupPromise) {
+      const cleanup = stopPythonStack(projectId)
+        .catch(() => appendLog(rp, "system", "[runtime] Python cleanup failed; retry Stop."))
+        .finally(() => {
+          if (rp.cleanupPromise === cleanup) rp.cleanupPromise = undefined;
+        });
+      rp.cleanupPromise = cleanup;
+    }
   });
 
-  const ready = await waitForHttp(port, 45_000);
-  if (ctrl_cancelled(rp)) {
-    return getRuntimeStatus(projectId);
-  }
-  if (ready) {
+  const health = await waitForRuntimeHttp(
+    `http://localhost:${port}/`,
+    45000,
+    () => cancelled() || rp.status === "failed" || !rp.proc,
+  );
+  if (cancelled()) return getRuntimeStatus(projectId);
+  if (health.ready && rp.proc && getRuntimeStatus(projectId).status !== "failed") {
     rp.status = "running";
     rp.ready = true;
     appendLog(rp, "system", `[runtime] 项目已启动:http://localhost:${port}`);
+    if (rp.pythonStack) {
+      rp.healthTimer = setInterval(() => {
+        if (rp.healthChecking || cancelled() || !rp.pythonStack) return;
+        rp.healthChecking = true;
+        void rp.pythonStack
+          .assertHealthy()
+          .catch(async (error) => {
+            if (cancelled()) return;
+            rp.ready = false;
+            rp.status = "failed";
+            if (rp.backend) {
+              rp.backend.ready = false;
+              rp.backend.status = "failed";
+              rp.backend.error = String(error);
+              rp.backend.services = rp.backend.services?.map((service) => ({
+                ...service,
+                status: "failed",
+              }));
+            }
+            appendLog(rp, "system", `[runtime] 全栈健康检查失败: ${String(error)}`);
+            if (rp.healthTimer) clearInterval(rp.healthTimer);
+            const failedPid = rp.proc?.pid;
+            const cleanup = (async () => {
+              if (failedPid) await killTree(failedPid);
+              if (!cancelled()) await stopPythonStack(projectId);
+            })()
+              .catch(() => appendLog(rp, "system", "[runtime] Failed stack cleanup; retry Stop."))
+              .finally(() => {
+                if (rp.cleanupPromise === cleanup) rp.cleanupPromise = undefined;
+              });
+            rp.cleanupPromise = cleanup;
+            await cleanup;
+          })
+          .finally(() => {
+            rp.healthChecking = false;
+          });
+      }, 15000);
+      rp.healthTimer.unref?.();
+    }
     await logActivity(projectId, "system", `项目启动:http://localhost:${port}`);
   } else {
-    rp.status = rp.proc && rp.proc.exitCode === null ? "running" : "failed";
-    appendLog(
-      rp,
-      "system",
-      `[runtime] 端口 ${port} 在 45 秒内未就绪${rp.status === "failed" ? "(进程已退出)" : "(进程仍在运行,继续等待访问)"} `,
-    );
+    rp.status = "failed";
+    rp.ready = false;
+    appendLog(rp, "system", `[runtime] Frontend HTTP readiness failed: ${health.error}`);
+    if (rp.pythonStack) await stopPythonStack(projectId);
+    if (rp.proc?.pid) await killTree(rp.proc.pid);
+    if (rp.backendProc?.pid) await killTree(rp.backendProc.pid);
   }
   return getRuntimeStatus(projectId);
 }
 
-function ctrl_cancelled(rp: RuntimeProcess): boolean {
-  return rp.status === "stopped";
+export function stopRuntime(projectId: string, userId: string): Promise<RuntimeStatusInfo> {
+  const pending = stoppingOperations.get(projectId);
+  if (pending) return pending;
+  const operation = stopRuntimeInternal(projectId, userId).finally(() => {
+    if (stoppingOperations.get(projectId) === operation) stoppingOperations.delete(projectId);
+  });
+  stoppingOperations.set(projectId, operation);
+  return operation;
 }
-
-export async function stopRuntime(projectId: string, userId: string): Promise<RuntimeStatusInfo> {
+async function stopRuntimeInternal(projectId: string, userId: string): Promise<RuntimeStatusInfo> {
   void userId; // 归属校验在路由层完成
   const rp = processes.get(projectId);
-  if (!rp) return getRuntimeStatus(projectId);
+  if (!rp) {
+    if (detectPythonStack(resolveProjectDir(projectId))) await stopPythonStack(projectId);
+    return getRuntimeStatus(projectId);
+  }
   rp.status = "stopped";
+  ++rp.generation;
+  rp.startupAbort?.abort();
+  const pendingStartup = startupOperations.get(projectId);
+  if (pendingStartup) await pendingStartup.catch(() => {});
+  if (rp.cleanupPromise) await rp.cleanupPromise;
+  if (rp.healthTimer) clearInterval(rp.healthTimer);
+  rp.healthTimer = undefined;
+  if (rp.pythonStack || detectPythonStack(resolveProjectDir(projectId)))
+    await stopPythonStack(projectId);
+  rp.pythonStack = undefined;
+  if (rp.backendProc?.pid) await killTree(rp.backendProc.pid);
+  rp.backendProc = null;
+  if (rp.backend) {
+    rp.backend.status = "stopped";
+    rp.backend.ready = false;
+    rp.backend.pid = null;
+    rp.backend.services = rp.backend.services?.map((service) => ({
+      ...service,
+      status: "stopped",
+    }));
+  }
   if (rp.buildProc) {
     try {
       rp.buildProc.kill();
@@ -435,13 +744,6 @@ export async function stopRuntime(projectId: string, userId: string): Promise<Ru
   if (rp.proc?.pid) {
     appendLog(rp, "system", `[runtime] 停止项目(PID ${rp.proc.pid})`);
     await killTree(rp.proc.pid);
-  } else if (rp.port) {
-    // 接管模式(无子进程句柄):按端口找监听进程并终止
-    const pid = await findListenerPid(rp.port);
-    if (pid) {
-      appendLog(rp, "system", `[runtime] 停止项目(端口 ${rp.port},PID ${pid})`);
-      await killTree(pid);
-    }
   }
   rp.proc = null;
   rp.ready = false;
@@ -455,7 +757,7 @@ export async function restartRuntime(
 ): Promise<RuntimeStatusInfo> {
   void userId; // 归属校验在路由层完成
   const rp = processes.get(projectId);
-  if (rp?.proc) {
+  if (rp) {
     await stopRuntime(projectId, userId);
     await sleep(800);
   }
@@ -478,7 +780,7 @@ export async function buildRuntime(projectId: string, userId: string): Promise<R
   appendLog(rp, "system", "[build] 开始构建(npm run build)…");
   const buildProc = spawn("npm", ["run", "build"], {
     cwd: clientDir,
-    env: { ...process.env, FORCE_COLOR: "0", NO_COLOR: "1" },
+    env: { ...frontendRuntimeEnvironment(), FORCE_COLOR: "0", NO_COLOR: "1" },
     shell: true,
     windowsHide: true,
   });

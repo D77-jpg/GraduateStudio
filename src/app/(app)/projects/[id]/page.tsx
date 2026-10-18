@@ -102,6 +102,30 @@ export default async function ProjectDetailPage({ params }: { params: Promise<{ 
             </div>
           </header>
 
+          <section
+            aria-labelledby="full-project-generation"
+            className="mt-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-blue-100 bg-blue-50/70 p-6 dark:border-blue-500/20 dark:bg-blue-500/10"
+          >
+            <div>
+              <h2
+                id="full-project-generation"
+                className="text-base font-semibold text-zinc-900 dark:text-white"
+              >
+                生成完整项目
+              </h2>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-zinc-600 dark:text-zinc-400">
+                基于已确认需求自动规划模块、生成代码并进行构建与测试，无需逐轮输入提示词。执行有预算上限，结果需人工验收。
+              </p>
+            </div>
+            <Link
+              href={`/projects/${project.id}/agent`}
+              className="inline-flex min-h-11 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#0071e3] px-5 text-sm font-medium text-white transition-colors hover:bg-[#0064c9] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[#0071e3]"
+            >
+              生成完整项目
+              <ChevronRightIcon className="h-4 w-4" />
+            </Link>
+          </section>
+
           <section aria-labelledby="project-stages" className="mt-10">
             <div className="flex flex-wrap items-end justify-between gap-3">
               <div>

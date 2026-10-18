@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { Suspense, type ReactNode } from "react";
+import { WorkspaceLoading } from "@/components/layout/workspace-loading";
 import { redirect } from "next/navigation";
 import { auth } from "@/server/auth";
 import { MobileNav, Sidebar } from "@/components/layout/sidebar";
@@ -15,7 +16,9 @@ export default async function AppLayout({ children }: { children: ReactNode }) {
       <div className="flex min-w-0 flex-1 flex-col">
         <Topbar user={session.user} />
         <main id="main-content" className="flex-1">
-          {children}
+          {/* A stable boundary keeps an already visible workspace during React
+              navigation transitions instead of replacing it with route skeletons. */}
+          <Suspense fallback={<WorkspaceLoading />}>{children}</Suspense>
         </main>
       </div>
     </div>

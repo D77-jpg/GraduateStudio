@@ -11,9 +11,10 @@ import {
   ErNotConfiguredError,
 } from "@/server/runtime/process-manager";
 import { handleRouteError, jsonError } from "@/server/api-helpers";
+import { readPythonPreviewLogin } from "@/server/runtime/python-stack";
 
 export const dynamic = "force-dynamic";
-export const maxDuration = 300;
+export const maxDuration = 1200;
 
 /** Runtime 状态(含可选增量日志:?logs=1&since=N)。 */
 export async function GET(request: Request, { params }: { params: Promise<{ id: string }> }) {
@@ -49,6 +50,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     const action = new URL(request.url).searchParams.get("action") ?? "";
     const userId = session.user.id;
 
+    if (action === "preview-login") {
+      const login = await readPythonPreviewLogin(id);
+      return NextResponse.json(login, {
+        headers: { "Cache-Control": "no-store", Pragma: "no-cache" },
+      });
+    }
     if (action === "start") {
       const status = await startRuntime(id, userId);
       return NextResponse.json({ status });
@@ -65,7 +72,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
       const status = await buildRuntime(id, userId);
       return NextResponse.json({ status });
     }
-    return jsonError(400, "invalid_action", "action 必须是 start|stop|restart|build");
+    return jsonError(400, "invalid_action", "action 必须是 start|stop|restart|build|preview-login");
   } catch (error) {
     if (error instanceof ErNotConfiguredError) {
       return jsonError(409, "runtime_error", error.message);

@@ -60,11 +60,10 @@ describe("resolveProviderSelection", () => {
     expect(sel).toEqual({ provider: "deepseek", model: "deepseek-chat" });
   });
 
-  it("falls back when AI_PROVIDER is not configured", () => {
-    const sel = resolveProviderSelection(
-      envWith({ OPENAI_API_KEY: "k1", AI_PROVIDER: "anthropic" }),
-    );
-    expect(sel.provider).toBe("openai");
+  it("fails closed rather than using another provider's key", () => {
+    expect(() =>
+      resolveProviderSelection(envWith({ OPENAI_API_KEY: "k1", AI_PROVIDER: "anthropic" })),
+    ).toThrow(AiNotConfiguredError);
   });
 
   it("honors AI_DEFAULT_MODEL override", () => {

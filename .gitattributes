@@ -1,0 +1,8 @@
+# Keep source and pinned design-skill checksums stable across Windows/Linux.
+* text=auto eol=lf
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary

@@ -128,7 +128,8 @@ export function SetPageTitle({ title }: { title: string }) {
 
   useEffect(() => {
     setPageTitle(title);
-    return () => setPageTitle("");
+    // Keep the previous title until the destination sets its own; clearing on
+    // unmount creates an extra blank frame during every route transition.
   }, [title, setPageTitle]);
 
   return null;

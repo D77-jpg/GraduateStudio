@@ -20,7 +20,7 @@ export default async function AgentPage({ params }: { params: Promise<{ id: stri
       <div className="w-full px-4 py-8 lg:px-10">
         <PageHeader
           title="自主开发任务"
-          description={`${project.name} · Agent 自动闭环:分析 → 规划 → 编码 → 自检 → 修复,全程留痕可暂停/取消`}
+          description={`${project.name} · 创建开发任务，查看进度与代码变更。`}
         />
         <div className="mt-8">
           <AgentTasksView projectId={project.id} />

@@ -19,11 +19,16 @@ export interface AiStatus {
 }
 
 /** 面向健康检查 / 设置页的汇总状态,不抛异常。 */
-export function getAiStatus(env: AiEnv = getAiEnv()): AiStatus {
-  const available = getAvailableProviders(env);
-  if (available.length === 0) {
-    return { configured: false, provider: null, model: null, available };
+export function getAiStatus(env?: AiEnv): AiStatus {
+  try {
+    const current = env ?? getAiEnv();
+    const available = getAvailableProviders(current);
+    if (available.length === 0) {
+      return { configured: false, provider: null, model: null, available };
+    }
+    const { provider, model } = resolveProviderSelection(current);
+    return { configured: true, provider, model, available };
+  } catch {
+    return { configured: false, provider: null, model: null, available: [] };
   }
-  const { provider, model } = resolveProviderSelection(env);
-  return { configured: true, provider, model, available };
 }

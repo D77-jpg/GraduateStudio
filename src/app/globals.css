@@ -54,6 +54,8 @@
 }
 
 html {
+  /* Reserve the scrollbar gutter so short loading states do not shift the workspace. */
+  scrollbar-gutter: stable;
   scroll-behavior: smooth;
   scroll-padding-top: 5rem;
 }

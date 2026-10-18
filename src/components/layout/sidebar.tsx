@@ -75,6 +75,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
             <Link
               key={href}
               href={href}
+              prefetch={true}
               onClick={onNavigate}
               className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${
                 active
@@ -104,6 +105,7 @@ function NavContent({ onNavigate }: { onNavigate?: () => void }) {
                   <Link
                     key={project.id}
                     href={`/projects/${project.id}`}
+                    prefetch={true}
                     onClick={onNavigate}
                     title={project.name}
                     className={`flex items-center gap-2.5 rounded-lg px-3 py-2 text-sm transition-colors ${

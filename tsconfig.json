@@ -1,7 +1,11 @@
 {
   "compilerOptions": {
     "target": "ES2017",
-    "lib": ["dom", "dom.iterable", "esnext"],
+    "lib": [
+      "dom",
+      "dom.iterable",
+      "esnext"
+    ],
     "allowJs": true,
     "skipLibCheck": true,
     "strict": true,
@@ -19,7 +23,9 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": [
+        "./src/*"
+      ]
     }
   },
   "include": [
@@ -28,7 +34,58 @@
     "**/*.tsx",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
-    "**/*.mts"
+    "**/*.mts",
+    ".next-codex-v1/types/**/*.ts",
+    ".next-codex-v1/dev/types/**/*.ts",
+    ".next-codex-v2/types/**/*.ts",
+    ".next-codex-v2/dev/types/**/*.ts",
+    ".next-navigation-v1/types/**/*.ts",
+    ".next-navigation-v1/dev/types/**/*.ts",
+    ".next-codex-copy-v1/types/**/*.ts",
+    ".next-codex-copy-v1/dev/types/**/*.ts",
+    ".next-usercopy-v1/types/**/*.ts",
+    ".next-usercopy-v1/dev/types/**/*.ts",
+    ".next-python-cache-v1/types/**/*.ts",
+    ".next-python-cache-v1/dev/types/**/*.ts",
+    ".next-env-recovery-v1/types/**/*.ts",
+    ".next-env-recovery-v1/dev/types/**/*.ts",
+    ".next-protocol-diagnostic-v1/types/**/*.ts",
+    ".next-protocol-diagnostic-v1/dev/types/**/*.ts",
+    ".next-codex-output-fix-v1/types/**/*.ts",
+    ".next-codex-output-fix-v1/dev/types/**/*.ts",
+    ".next-codex-timeout-fix-v1/types/**/*.ts",
+    ".next-codex-timeout-fix-v1/dev/types/**/*.ts",
+    ".next-codex-reconnect-fix-v1/types/**/*.ts",
+    ".next-codex-reconnect-fix-v1/dev/types/**/*.ts",
+    ".next-post-apply-verify-v1/types/**/*.ts",
+    ".next-post-apply-verify-v1/dev/types/**/*.ts",
+    ".next-post-apply-verify-v2/types/**/*.ts",
+    ".next-post-apply-verify-v2/dev/types/**/*.ts",
+    ".next-auto-deps-v1/types/**/*.ts",
+    ".next-auto-deps-v1/dev/types/**/*.ts",
+    ".next-auto-deps-v2/types/**/*.ts",
+    ".next-auto-deps-v2/dev/types/**/*.ts",
+    ".next-repair-report-v3/types/**/*.ts",
+    ".next-repair-report-v3/dev/types/**/*.ts",
+    ".next-status-guidance-v4/types/**/*.ts",
+    ".next-status-guidance-v4/dev/types/**/*.ts",
+    ".next-runtime-deps-v5/types/**/*.ts",
+    ".next-runtime-deps-v5/dev/types/**/*.ts",
+    ".next-fullstack-runtime-v6/types/**/*.ts",
+    ".next-fullstack-runtime-v6/dev/types/**/*.ts",
+    ".next-design-skills-v7/types/**/*.ts",
+    ".next-design-skills-v7/dev/types/**/*.ts",
+    ".next-runtime-repair-v8/types/**/*.ts",
+    ".next-runtime-repair-v8/dev/types/**/*.ts",
+    ".next-model-relay-v9/types/**/*.ts",
+    ".next-model-relay-v9/dev/types/**/*.ts",
+    ".next-runtime-network-v10/types/**/*.ts",
+    ".next-runtime-network-v10/dev/types/**/*.ts",
+    ".next-codex-recovery-v11/types/**/*.ts",
+    ".next-codex-recovery-v11/dev/types/**/*.ts"
   ],
-  "exclude": ["node_modules", ".workspace"]
+  "exclude": [
+    "node_modules",
+    ".workspace"
+  ]
 }

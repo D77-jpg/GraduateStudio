@@ -15,6 +15,8 @@ const securityHeaders = [
 
 const nextConfig: NextConfig = {
   devIndicators: false,
+  // Build immutable releases without overwriting assets served by the active instance.
+  distDir: process.env.GRADUATESTUDIO_NEXT_DIST_DIR || ".next",
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];
   },

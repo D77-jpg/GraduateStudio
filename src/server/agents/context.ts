@@ -1,5 +1,11 @@
 import { db } from "@/server/db";
-import { listProjectFilePaths, readFileOrNull } from "@/server/workspace/search";
+import { listProjectFilePaths, isTextFilePath } from "@/server/workspace/search";
+import { readFileContent } from "@/server/workspace/files";
+import {
+  assertSafeGenerationPath,
+  assertFullRewriteContext,
+  prioritizePlanningFiles,
+} from "@/lib/generation-quality";
 import { buildFeatureTree } from "@/lib/requirements";
 import { toProjectDto } from "@/server/projects";
 
@@ -8,10 +14,6 @@ import { toProjectDto } from "@/server/projects";
  * buildProjectRequirementText:项目元信息 + 需求分析文本(架构师/编码 Agent 共用);
  * buildCodingContext:在其上叠加工作区文件、选中文件内容、最近变更(编码 Agent 用)。
  */
-
-const MAX_CONTEXT_FILES = 200;
-const MAX_FILE_CONTEXT_CHARS = 6_000;
-const MAX_TOTAL_FILE_CHARS = 20_000;
 
 export interface ProjectRequirementText {
   projectText: string;
@@ -139,22 +141,37 @@ export async function buildCodingContext(
   projectId: string,
   userId: string,
   selectedFilePaths: string[] = [],
+  options: { requiredFullFilePaths?: string[]; autoSelectPlanningFiles?: boolean } = {},
 ): Promise<CodingContext> {
   const { projectText, requirementText } = await buildProjectRequirementText(projectId, userId);
 
-  const allPaths = listProjectFilePaths(projectId, userId).slice(0, MAX_CONTEXT_FILES);
-  const fileTreeText = allPaths.length ? allPaths.map((p) => `- ${p}`).join("\n") : "(工作区为空)";
+  const allPaths = listProjectFilePaths(projectId, userId);
+  const visiblePaths = prioritizePlanningFiles(allPaths);
+  const fileTreeText = visiblePaths.length
+    ? visiblePaths.map((p) => `- ${p}`).join("\n")
+    : "(工作区为空)";
 
-  let remaining = MAX_TOTAL_FILE_CHARS;
+  const required = new Set(options.requiredFullFilePaths ?? []);
+  const candidates = selectedFilePaths.length
+    ? selectedFilePaths
+    : options.autoSelectPlanningFiles
+      ? prioritizePlanningFiles(allPaths).filter(isTextFilePath)
+      : [];
+  // Required rewrite files must never be displaced by optional selections.
+  const paths = [...new Set([...required, ...candidates])];
   const selectedChunks: string[] = [];
-  for (const p of selectedFilePaths.slice(0, 5)) {
-    if (remaining <= 0) break;
-    const content = readFileOrNull(projectId, userId, p);
-    if (content === null) continue;
-    const clipped = content.slice(0, Math.min(MAX_FILE_CONTEXT_CHARS, remaining));
-    remaining -= clipped.length;
+  for (const p of paths) {
+    assertSafeGenerationPath(p);
+    let file: ReturnType<typeof readFileContent> | null = null;
+    try {
+      if (isTextFilePath(p)) file = readFileContent(projectId, userId, p);
+    } catch {
+      // Missing optional context (including future create targets) can be skipped.
+    }
+    if (required.has(p)) assertFullRewriteContext(p, file);
+    if (!file || file.content.includes("\u0000")) continue;
     selectedChunks.push(
-      `--- 文件:${p} ---\n${clipped}${clipped.length < content.length ? "\n…(已截断)" : ""}`,
+      `--- 文件:${p} ---\n${file.content}${file.truncated ? "\n…(文件读取结果不完整;不可据此完整重写此文件)" : ""}`,
     );
   }
   const selectedFilesText = selectedChunks.join("\n\n") || "(无选中文件)";
@@ -219,7 +236,7 @@ export async function buildCodingContext(
         ),
       );
     }
-    architectureText = lines.join("\n").slice(0, 14_000);
+    architectureText = lines.join("\n");
   }
 
   return {

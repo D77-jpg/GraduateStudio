@@ -1,0 +1,515 @@
+[
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "41f8e2fd7f8c568228d0b55186ebe3f7b4007377",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/.claude/skills/ui-ux-pro-max/SKILL.md",
+    "upstream": ".claude/skills/ui-ux-pro-max/SKILL.md",
+    "path": "ui-ux-pro-max/SKILL.md",
+    "bytes": 16258,
+    "sha256": "31801cef37bb3184c9eae4e12c6b0f12b3f45ca6fa38fb231fed536c968b993b",
+    "upstreamSha256": "ea087c341bfb5b23195c7302027268ede86da802554c18a5c4896a6017b439f9",
+    "upstreamBytes": 15969,
+    "modifications": "Command path adapted to /opt/gs-design-skills with python3 -B; local safety notice added. All other upstream files are byte-for-byte copies."
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "b2ce233287e37ec9ca13476c4014b922e9d5a0e9",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/.claude/skills/ui-ux-pro-max/references/pro-rules.md",
+    "upstream": ".claude/skills/ui-ux-pro-max/references/pro-rules.md",
+    "path": "ui-ux-pro-max/references/pro-rules.md",
+    "bytes": 10909,
+    "sha256": "d28442d61c310b49c054a4ea736f89fb3008beebdbbc38c4b3a540b8f7fadf23"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "7acc7e7540ca6981d878a90aae4455c1638e2385",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/.claude/skills/ui-ux-pro-max/references/quick-reference.md",
+    "upstream": ".claude/skills/ui-ux-pro-max/references/quick-reference.md",
+    "path": "ui-ux-pro-max/references/quick-reference.md",
+    "bytes": 24526,
+    "sha256": "0609bc7c89dacb40472465d8fc14257b56b2c43439660fc8d6fa3b8c022e1876"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "1e71cbf26660f31903807d099fe902c098fc7e4c",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/LICENSE",
+    "upstream": "LICENSE",
+    "path": "ui-ux-pro-max/LICENSE",
+    "bytes": 1075,
+    "sha256": "738f69dfa83db5c347c678fb9d90e560877059f0de93a327c39001bff92dc014"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "95e328c807a23be02c9c32c736d0fa19109c6076",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/app-interface.csv",
+    "upstream": "src/ui-ux-pro-max/data/app-interface.csv",
+    "path": "ui-ux-pro-max/data/app-interface.csv",
+    "bytes": 11046,
+    "sha256": "331e7cf2c0b222d80c566c5f255c63cb339f65bfd02e471a720f28e4864a9f08"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "f911c3ae48fac5863a5a5e210866ec5cabece164",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/catalog-summary.json",
+    "upstream": "src/ui-ux-pro-max/data/catalog-summary.json",
+    "path": "ui-ux-pro-max/data/catalog-summary.json",
+    "bytes": 2392,
+    "sha256": "6638da97231c07fb5cef3cd9d3ce483ca7b2f9748980f8c27490eb03968d8894"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "c6f4f875fd5b34379f24dbb541539492366a1058",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/charts.csv",
+    "upstream": "src/ui-ux-pro-max/data/charts.csv",
+    "path": "ui-ux-pro-max/data/charts.csv",
+    "bytes": 23365,
+    "sha256": "4115cf1120680f2cedef0676cb648f30c7ef4699e2a947535d4113e71ed3b12a"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "5d2bf7389105f8a824b504b57cc93c00dc1d7e0a",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/colors.csv",
+    "upstream": "src/ui-ux-pro-max/data/colors.csv",
+    "path": "ui-ux-pro-max/data/colors.csv",
+    "bytes": 37940,
+    "sha256": "8162429222bce22df62b564085946a30d07cc9722c58d0a3a494bd0d1d00841c"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "e41d2e553bdc7e5a8e6d16f5daab565faf372188",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/data-provenance.json",
+    "upstream": "src/ui-ux-pro-max/data/data-provenance.json",
+    "path": "ui-ux-pro-max/data/data-provenance.json",
+    "bytes": 36686,
+    "sha256": "e82fb33ed49375a300e93d9c11ccd1c1493c999e84ee7ee295e527634786e2e0"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "3ac2c34e80665bc902e265c52ab6c27b1654524c",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/google-font-licenses.json",
+    "upstream": "src/ui-ux-pro-max/data/google-font-licenses.json",
+    "path": "ui-ux-pro-max/data/google-font-licenses.json",
+    "bytes": 433127,
+    "sha256": "35688523f2955795caa1a47c53b83099e60c1708461476f9cc3a050cf3b0148a"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "d7f87e3e0159b1caba083b9954793d9852256aa0",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/google-fonts.csv",
+    "upstream": "src/ui-ux-pro-max/data/google-fonts.csv",
+    "path": "ui-ux-pro-max/data/google-fonts.csv",
+    "bytes": 747241,
+    "sha256": "1c8c3b2ea1faf6a1012da463756def8b3889db33f2226f0343bb4daa80307d03"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "cfc3f1eccd7e5aee15d8d70f86d8fa17ba737958",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/icons.csv",
+    "upstream": "src/ui-ux-pro-max/data/icons.csv",
+    "path": "ui-ux-pro-max/data/icons.csv",
+    "bytes": 57945,
+    "sha256": "50816c6012030178195a16ee481ebf58b47bd985d70e8ec58886cc83f6eddafc"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "34858160aa2789c49dca274d48bb116d51dd3f0a",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/landing.csv",
+    "upstream": "src/ui-ux-pro-max/data/landing.csv",
+    "path": "ui-ux-pro-max/data/landing.csv",
+    "bytes": 25449,
+    "sha256": "9a2edd3bb676c2a58f00ade7a062e285222d4297bfd847c8d5b056f0dbbf52d0"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "8e0ca9ceb0e4cd4832aee60ac74713e1e1830de8",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/motion.csv",
+    "upstream": "src/ui-ux-pro-max/data/motion.csv",
+    "path": "ui-ux-pro-max/data/motion.csv",
+    "bytes": 14679,
+    "sha256": "381affe8df8ea1f66fbbda2598827f9f54299107bbe6a1b4e9b68f6b62091ceb"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "9f40f1d1f9743c4a81603076dfbfd115bbb55246",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/products.csv",
+    "upstream": "src/ui-ux-pro-max/data/products.csv",
+    "path": "ui-ux-pro-max/data/products.csv",
+    "bytes": 75623,
+    "sha256": "42473f75e8dde5987bdf89ce55d8c168091b80a356cae691dd60247d80720b70"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "425a8e76c6b3bae40e8c633ffbf7ad6222c9f73a",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/react-performance.csv",
+    "upstream": "src/ui-ux-pro-max/data/react-performance.csv",
+    "path": "ui-ux-pro-max/data/react-performance.csv",
+    "bytes": 15080,
+    "sha256": "3d925802539abac5afeb63ae8aa1960b7229ad271b3a47caed40ab2d97ad0734"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "5a1878dbee2b3c55c6468cbb18699b84d1a8c4d2",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/stacks/angular.csv",
+    "upstream": "src/ui-ux-pro-max/data/stacks/angular.csv",
+    "path": "ui-ux-pro-max/data/stacks/angular.csv",
+    "bytes": 19863,
+    "sha256": "704be83f2bad30c7e6de01afb113ffa01e0c458762f48b7102f31ba2367b5553"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "1fd2492420b20a0b311295ab883597fadb8245a6",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/stacks/astro.csv",
+    "upstream": "src/ui-ux-pro-max/data/stacks/astro.csv",
+    "path": "ui-ux-pro-max/data/stacks/astro.csv",
+    "bytes": 14591,
+    "sha256": "2c2f55fadaafc05e04cc321c8194a1a28b656e6757fe2ba316f41b16428299c6"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "c67f4117105865587eda9020c57d8c209f3a929a",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/stacks/avalonia.csv",
+    "upstream": "src/ui-ux-pro-max/data/stacks/avalonia.csv",
+    "path": "ui-ux-pro-max/data/stacks/avalonia.csv",
+    "bytes": 27327,
+    "sha256": "442fca14675a020683473e7e49f08abb27b9df0765c80efe54aef61f1a4ac258"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "731805c4076bd9f2755ca4bd7def5be6f6df7e9c",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/stacks/flutter.csv",
+    "upstream": "src/ui-ux-pro-max/data/stacks/flutter.csv",
+    "path": "ui-ux-pro-max/data/stacks/flutter.csv",
+    "bytes": 14192,
+    "sha256": "64dba0ac17349f28bce517a0f5f48c54d9ed2e487ec0c0258303463b382f41a0"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "9089eb0fc821ff0c8d135f8ee503be345e8fcb84",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/stacks/html-tailwind.csv",
+    "upstream": "src/ui-ux-pro-max/data/stacks/html-tailwind.csv",
+    "path": "ui-ux-pro-max/data/stacks/html-tailwind.csv",
+    "bytes": 16551,
+    "sha256": "d05a581d20af57b8ca0104a6d31d90a07c437d500662a96c3029fc2f9a4678ee"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "744bd80f437f12bfb5bb9c84630a58022604675a",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/stacks/javafx.csv",
+    "upstream": "src/ui-ux-pro-max/data/stacks/javafx.csv",
+    "path": "ui-ux-pro-max/data/stacks/javafx.csv",
+    "bytes": 33577,
+    "sha256": "2e819b8d5abdd23ad4dae0991650fdb57af497aabd68b37463aa9c442944c869"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "8daa0b8f9a2ca3f0f1711664d9d677cd1c38dd9e",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/stacks/jetpack-compose.csv",
+    "upstream": "src/ui-ux-pro-max/data/stacks/jetpack-compose.csv",
+    "path": "ui-ux-pro-max/data/stacks/jetpack-compose.csv",
+    "bytes": 12295,
+    "sha256": "699de218b286948eaec7d15767b6e1350ee299167e49bf476d82e3ff58724e0a"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "ed11b0fba457e02857f996d1542fb0b8e1271756",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/stacks/laravel.csv",
+    "upstream": "src/ui-ux-pro-max/data/stacks/laravel.csv",
+    "path": "ui-ux-pro-max/data/stacks/laravel.csv",
+    "bytes": 20163,
+    "sha256": "854ea4daa5fc61292d22235ad33b49ba3fe22423c3de8d3cb03758ffed3b59f9"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "acdaf097dff26ba0d3b22ab4544bf6169c87afd4",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/stacks/nextjs.csv",
+    "upstream": "src/ui-ux-pro-max/data/stacks/nextjs.csv",
+    "path": "ui-ux-pro-max/data/stacks/nextjs.csv",
+    "bytes": 18687,
+    "sha256": "ecd2c27b2ea0127d203ae726060efcdd7335b5e83f96b99e4f3befbbfeebd5a4"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "e2aaeca45faa8b987bf94010162b14d458811dde",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/stacks/nuxt-ui.csv",
+    "upstream": "src/ui-ux-pro-max/data/stacks/nuxt-ui.csv",
+    "path": "ui-ux-pro-max/data/stacks/nuxt-ui.csv",
+    "bytes": 28700,
+    "sha256": "fce682a338cfcdbf35d318d20e5befbe7b5d81b05abc37f87677a6d9cde84dc6"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "ceab9cf3358d2788af0bd7dc14cb3fab769740d0",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/stacks/nuxtjs.csv",
+    "upstream": "src/ui-ux-pro-max/data/stacks/nuxtjs.csv",
+    "path": "ui-ux-pro-max/data/stacks/nuxtjs.csv",
+    "bytes": 23014,
+    "sha256": "3d9b54ed2d151bd9c86e9e5609b8a6f88a00c4c52fa601a30af96c49b2c4d176"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "a5aea45dc1d0341b11ee42076a86db842d4d2a19",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/stacks/react-native.csv",
+    "upstream": "src/ui-ux-pro-max/data/stacks/react-native.csv",
+    "path": "ui-ux-pro-max/data/stacks/react-native.csv",
+    "bytes": 14049,
+    "sha256": "ba31dd9c0c04da6bc02a74448bf121f9c0728ae5ba3b4d47b487778b0a1135b5"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "fe8f001e695a978733449e04e99d7135af0f1bf3",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/stacks/react.csv",
+    "upstream": "src/ui-ux-pro-max/data/stacks/react.csv",
+    "path": "ui-ux-pro-max/data/stacks/react.csv",
+    "bytes": 21166,
+    "sha256": "4dd176a9787e5c6306b5df94158d75955adcdc6edab41ce5286641a5842303c1"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "0e8bedf3084e7a40d6310bcd3011c437efcb1700",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/stacks/shadcn.csv",
+    "upstream": "src/ui-ux-pro-max/data/stacks/shadcn.csv",
+    "path": "ui-ux-pro-max/data/stacks/shadcn.csv",
+    "bytes": 23184,
+    "sha256": "e56cfde5b74907836ac3582a4779d5b7f3d206a702ab81b8669a1b668c3eeb51"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "51684fe70448e15333cd16207db7da8aea0508e6",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/stacks/svelte.csv",
+    "upstream": "src/ui-ux-pro-max/data/stacks/svelte.csv",
+    "path": "ui-ux-pro-max/data/stacks/svelte.csv",
+    "bytes": 15078,
+    "sha256": "f6e379ba802941ba26b01d4ffbe3cd39120f2587659a1d93851c707f66bc13db"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "ea9b95e8922e663b2adf27a7346e2c2f44c7a215",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/stacks/swiftui.csv",
+    "upstream": "src/ui-ux-pro-max/data/stacks/swiftui.csv",
+    "path": "ui-ux-pro-max/data/stacks/swiftui.csv",
+    "bytes": 15323,
+    "sha256": "bdd9231ff3ad658f4e7c063e1eb49df2fd09ac8d90631a86df899b39833b9623"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "f62286320038beabbdc5e11e07ca2818d8e959a4",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/stacks/threejs.csv",
+    "upstream": "src/ui-ux-pro-max/data/stacks/threejs.csv",
+    "path": "ui-ux-pro-max/data/stacks/threejs.csv",
+    "bytes": 46769,
+    "sha256": "155d583b9c64da0df4b6c6cb060c02eab222505e0734d6353da02c9e2b5d982b"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "9cab32326b4ad3a3cf43451a3c24553a41126cc1",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/stacks/uno.csv",
+    "upstream": "src/ui-ux-pro-max/data/stacks/uno.csv",
+    "path": "ui-ux-pro-max/data/stacks/uno.csv",
+    "bytes": 30091,
+    "sha256": "a0474363e4225b5367214d5675fd3e075f137026f9500f0d04357882ef4f6d48"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "04a84ea092a7657fef11e5daa97982be52dc6f59",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/stacks/uwp.csv",
+    "upstream": "src/ui-ux-pro-max/data/stacks/uwp.csv",
+    "path": "ui-ux-pro-max/data/stacks/uwp.csv",
+    "bytes": 24692,
+    "sha256": "c409f08c1fbba1f1029f1acaa554e7b4471cc85517a5751c9f2e62465badcd5c"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "83997c515775170f22b638635aae0a67a46dfc87",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/stacks/vue.csv",
+    "upstream": "src/ui-ux-pro-max/data/stacks/vue.csv",
+    "path": "ui-ux-pro-max/data/stacks/vue.csv",
+    "bytes": 12813,
+    "sha256": "b655f1ebb9dff2652d15981f31b1784c8a6d4759efd2815a14f3088257569f95"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "107ecead11728a83ec0ea10d815a9d1f43a35792",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/stacks/winui.csv",
+    "upstream": "src/ui-ux-pro-max/data/stacks/winui.csv",
+    "path": "ui-ux-pro-max/data/stacks/winui.csv",
+    "bytes": 27890,
+    "sha256": "e676dc1c13ee6c205c40b0746f1335150a346c7a49a0616d2545bc3d2c930c85"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "4e88d6750833a74f85ba487cf2b8f4ff6ebd2f4a",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/stacks/wpf.csv",
+    "upstream": "src/ui-ux-pro-max/data/stacks/wpf.csv",
+    "path": "ui-ux-pro-max/data/stacks/wpf.csv",
+    "bytes": 24158,
+    "sha256": "9781a9950b20333637b30a02e498b7efca21b618a3eeb8665836f3ac6e974da7"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "d1eb2c216e453005ffa8232ffb94491c183afe3c",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/styles.csv",
+    "upstream": "src/ui-ux-pro-max/data/styles.csv",
+    "path": "ui-ux-pro-max/data/styles.csv",
+    "bytes": 149478,
+    "sha256": "a93a4d9d7025856575d7b7583bda020be9043013432c5af7c58af9dbdfb206b7"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "70d107d107de30150863c965767320ec33ef29ad",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/typography.csv",
+    "upstream": "src/ui-ux-pro-max/data/typography.csv",
+    "path": "ui-ux-pro-max/data/typography.csv",
+    "bytes": 49997,
+    "sha256": "321fc446e89024488ebae96dda93efc4d2307bd8bddb240857ad51364f6782c8"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "8931d4c809f8e22ddac00ce612ce0c35f34a59b6",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/ui-reasoning.csv",
+    "upstream": "src/ui-ux-pro-max/data/ui-reasoning.csv",
+    "path": "ui-ux-pro-max/data/ui-reasoning.csv",
+    "bytes": 77360,
+    "sha256": "f0774dd741cecdad5eec842034bd6d5e9ea50e9f220a1910069748daa0bb8e9a"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "4e7d52b296537a03513b18b2c3f2b946cc802051",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/data/ux-guidelines.csv",
+    "upstream": "src/ui-ux-pro-max/data/ux-guidelines.csv",
+    "path": "ui-ux-pro-max/data/ux-guidelines.csv",
+    "bytes": 27516,
+    "sha256": "ff81ec613f70ba9fc3fcce52dbe4ae35d44b2079dbe6dc066d2d6e38c28facd5"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "670fe33070cfe706401da4ff276831257dbf1e25",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/scripts/core.py",
+    "upstream": "src/ui-ux-pro-max/scripts/core.py",
+    "path": "ui-ux-pro-max/scripts/core.py",
+    "bytes": 41236,
+    "sha256": "c3be4b23e7150e6b45095213158cfa3c8ad96502f01dde3f6ffff9de64a4f481"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "d5fe1575f00d839f919603bd09b44fe7e9def4fb",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/scripts/design_system.py",
+    "upstream": "src/ui-ux-pro-max/scripts/design_system.py",
+    "path": "ui-ux-pro-max/scripts/design_system.py",
+    "bytes": 71537,
+    "sha256": "e7d1c94c4b2eada17c5551157668362659ccf9626d34dbd58e68142410f90103"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "63652a666b130c249ea1e2954316f1ac8a5a73d5",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/scripts/reasoning_contract.py",
+    "upstream": "src/ui-ux-pro-max/scripts/reasoning_contract.py",
+    "path": "ui-ux-pro-max/scripts/reasoning_contract.py",
+    "bytes": 5824,
+    "sha256": "b8bac1af82aa280d3e06f00aabaeac4337e632996b07fed874e2b6ee6e9c5913"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "5038aa875a0d39f24dea803a4c73b38f8f56915f",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/scripts/search.py",
+    "upstream": "src/ui-ux-pro-max/scripts/search.py",
+    "path": "ui-ux-pro-max/scripts/search.py",
+    "bytes": 9373,
+    "sha256": "d54e648fe0ec2932cac66684220cc17be4bd4b4eba1d23d3195d509d398db374"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "992ad8c792541a9a91cb7731fc8708fc6e87eb50",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/templates/base/quick-reference.md",
+    "upstream": "src/ui-ux-pro-max/templates/base/quick-reference.md",
+    "path": "ui-ux-pro-max/templates/base/quick-reference.md",
+    "bytes": 27418,
+    "sha256": "0a6da6ef08190792fa2d55eaa44ddaac0c071ff2cf9a087d372924c2a99e942f"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "1f4dca9036982a28607c906b67673e5610e38543",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/templates/base/skill-content.md",
+    "upstream": "src/ui-ux-pro-max/templates/base/skill-content.md",
+    "path": "ui-ux-pro-max/templates/base/skill-content.md",
+    "bytes": 27433,
+    "sha256": "4956ab03fcf850fbd05ea658cb694cea767ff8e42aaf59ccf59fef0172271394"
+  },
+  {
+    "license": "MIT",
+    "revision": "56ea9cf174ed86786187daa9de0e6247cb0747e4",
+    "blob": "a3384effb4f162e20878de06a763fb5d079a6239",
+    "source": "https://raw.githubusercontent.com/nextlevelbuilder/ui-ux-pro-max-skill/56ea9cf174ed86786187daa9de0e6247cb0747e4/src/ui-ux-pro-max/templates/platforms/universal.json",
+    "upstream": "src/ui-ux-pro-max/templates/platforms/universal.json",
+    "path": "ui-ux-pro-max/templates/platforms/universal.json",
+    "bytes": 1472,
+    "sha256": "2436c0b1191fa1a9a25f1f5c052d84f8102459634aa9a29da51a55890616d64f"
+  },
+  {
+    "license": "Apache-2.0",
+    "revision": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+    "blob": "f433b1a53f5b830a205fd2df78e2b34974656c7b",
+    "source": "https://raw.githubusercontent.com/anthropics/skills/dbd4588f9e1033efb41dad4bef2f7947c8993d44/skills/frontend-design/LICENSE.txt",
+    "upstream": "skills/frontend-design/LICENSE.txt",
+    "path": "frontend-design/LICENSE.txt",
+    "bytes": 10174,
+    "sha256": "0d542e0c8804e39aa7f37eb00da5a762149dc682d7829451287e11b938e94594"
+  },
+  {
+    "license": "Apache-2.0",
+    "revision": "dbd4588f9e1033efb41dad4bef2f7947c8993d44",
+    "blob": "a5333457c414d20d625f307df945842c0952ecc3",
+    "source": "https://raw.githubusercontent.com/anthropics/skills/dbd4588f9e1033efb41dad4bef2f7947c8993d44/skills/frontend-design/SKILL.md",
+    "upstream": "skills/frontend-design/SKILL.md",
+    "path": "frontend-design/SKILL.md",
+    "bytes": 9390,
+    "sha256": "d91970639e9f5c37682ac7ab60094d35f1c7c1f38d731bd56396563aee10c1d3"
+  }
+]

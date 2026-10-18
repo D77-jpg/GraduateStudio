@@ -1,0 +1,42 @@
+// Offline file/interaction-contract checks. This is not a browser or screenshot test.
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import vm from 'node:vm';
+import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
+const root=path.dirname(fileURLToPath(import.meta.url));
+const html=await fs.readFile(path.join(root,'preview.html'),'utf8');
+const tokens=JSON.parse(await fs.readFile(path.join(root,'design-system/tokens.json'),'utf8'));
+const exact=(obj,keys)=>assert.deepEqual(Object.keys(obj).sort(),keys.sort());
+exact(tokens,['version','colors','typography','spacing','radius']);assert.equal(tokens.version,1);
+exact(tokens.colors,['background','foreground','primary']);Object.values(tokens.colors).forEach(v=>assert.match(v,/^#[0-9a-f]{6}$/i));
+exact(tokens.typography,['fontFamily','headingFamily']);Object.values(tokens.typography).forEach(v=>assert.ok(typeof v==='string'&&v.trim()&&v.length<=200&&!/[\x00-\x1f]/.test(v)));
+for(const [key,keys] of [['spacing',['sm','md','lg']],['radius',['sm','md']]]){exact(tokens[key],keys);Object.values(tokens[key]).forEach(v=>assert.ok(v==='0'||(/^(?:\d{1,3})(?:\.\d{1,3})?(?:px|rem)$/.test(v)&&parseFloat(v)<=256)));}
+assert.match(html,/lang="zh-CN"/);assert.match(html,/设计提案·示例数据·非业务系统/);assert.match(html,/@media\(max-width:760px\)/);assert.match(html,/<svg/);
+assert.doesNotMatch(html,/<(?:img|iframe|link)\b|<script[^>]+src\s*=|url\s*\(|\b(?:fetch|XMLHttpRequest|WebSocket|localStorage|sessionStorage)\b/i);
+const ids=[...html.matchAll(/\bid="([^"]+)"/g)].map(m=>m[1]);assert.equal(new Set(ids).size,ids.length);
+const nodes=new Map();function node(id){if(!nodes.has(id))nodes.set(id,{id,value:'',textContent:'',innerHTML:'',hidden:false,dataset:{},attrs:{},handlers:{},setAttribute(k,v){this.attrs[k]=v;},removeAttribute(k){delete this.attrs[k];},addEventListener(k,fn){this.handlers[k]=fn;},focus(){this.focused=true;},scrollIntoView(){this.scrolled=true;}});return nodes.get(id);}
+ids.forEach(node);node('filter').value='all';node('channel').value='商品详情页';
+const nav=['products','creation','review'].map(p=>{const n=node('nav-'+p);n.dataset.page=p;return n;});
+const candidates=[0,1].map(i=>{const n=node('candidate-'+i);n.dataset.candidate=String(i);return n;});
+const queue=[0,1].map(i=>{const n=node('queue-'+i);n.dataset.review=String(i);return n;});
+let click;
+const doc={getElementById:node,querySelectorAll(sel){return sel==='main>section'?['products','creation','review'].map(node):sel==='[data-page]'?nav:sel==='[data-candidate]'?candidates:sel==='[data-review]'?queue:[];},addEventListener(type,fn){if(type==='click')click=fn;}};
+const script=html.match(/<script>([\s\S]*?)<\/script>/)[1];
+new vm.Script(script,{filename:'preview-inline.js'}).runInContext(vm.createContext({document:doc}));
+const press=attrs=>{const b={dataset:attrs,hasAttribute(k){return k==='data-product'?'product'in attrs:k==='data-candidate'?'candidate'in attrs:k==='data-review'?'review'in attrs:false;}};click({target:{closest:()=>b}});};
+assert.match(node('fact-name').textContent,/保温杯/);
+node('search').value='not-a-product';node('search').handlers.input();assert.match(node('product-cards').innerHTML,/没有匹配商品/);
+node('search').value='';node('filter').value='missing';node('filter').handlers.change();assert.match(node('product-cards').innerHTML,/帆布袋/);assert.doesNotMatch(node('product-cards').innerHTML,/随行保温杯/);
+press({product:'1'});assert.match(node('fact-count').textContent,/3\/4/);assert.match(node('creation-name').textContent,/帆布袋/);
+press({page:'creation'});assert.equal(node('creation').hidden,false);assert.equal(node('products').hidden,true);assert.ok(node('creation-title').focused);
+press({candidate:'1'});assert.match(node('copy-title').textContent,/日常位置/);
+node('draft').value='<b>仅本地</b>';node('draft').handlers.input();assert.equal(node('copy-body').textContent,'<b>仅本地</b>');assert.match(node('notice').textContent,/尚未保存/);
+press({review:'0'});assert.match(node('review-copy').innerHTML,/risk-hit/);node('locate').handlers.click();assert.ok(node('risk-hit').scrolled);
+node('opinion').value='';node('reject').handlers.click();assert.match(node('notice').textContent,/先填写/);
+node('opinion').value='删除无依据功效';node('reject').handlers.click();assert.match(node('notice').textContent,/未保存、未退回/);
+node('approve').handlers.click();assert.match(node('notice').textContent,/未通过任何内容/);
+press({review:'1'});assert.equal(node('locate').hidden,true);
+for(const name of ['MASTER.md','pages/products.md','pages/creation.md','pages/review.md'])assert.ok((await fs.readFile(path.join(root,'design-system',name),'utf8')).trim());
+console.log('PASS: strict tokens, offline HTML contract, unique ids, three-page navigation, product search/filter/context, candidate switch, safe draft text, review selection/location and honest action feedback.');
+console.log('Scope: Node VM with minimal DOM stub; no real browser, layout, screenshot, accessibility-tree or production integration validation.');

@@ -1,9 +1,14 @@
 import { createOpenAI } from "@ai-sdk/openai";
 import { createAnthropic } from "@ai-sdk/anthropic";
 import {
+  isOfficialDeepSeekFlash,
+  officialDeepSeekStructuredFetch,
+  type ChatRequestPolicy,
+} from "./request-policy";
+import {
   getAiEnv,
   getAvailableProviders,
-  getOpenAiApiKey,
+  getProviderApiKey,
   type AiEnv,
   type AiProviderId,
 } from "./env";
@@ -13,7 +18,7 @@ import {
  * 可通过 AI_DEFAULT_MODEL 覆盖;默认值随官方模型演进可能过期,
  * 调用时若模型 ID 失效应优先检查环境变量配置。
  */
-const DEFAULT_MODELS: Record<AiProviderId, string> = {
+export const DEFAULT_MODELS: Record<AiProviderId, string> = {
   openai: "gpt-4o-mini",
   anthropic: "claude-sonnet-4-5",
   deepseek: "deepseek-chat",
@@ -45,24 +50,39 @@ export function resolveProviderSelection(env: AiEnv = getAiEnv()): {
   if (available.length === 0) throw new AiNotConfiguredError();
 
   const preferred = env.AI_PROVIDER;
-  const provider = preferred && available.includes(preferred) ? preferred : available[0];
+  if (preferred && !available.includes(preferred)) throw new AiNotConfiguredError();
+  const provider = preferred ?? available[0];
   const model = env.AI_DEFAULT_MODEL ?? DEFAULT_MODELS[provider];
   return { provider, model };
 }
 
+export function resolveProviderBaseURL(env: AiEnv, provider: AiProviderId): string | undefined {
+  return (
+    env.AI_BASE_URL ??
+    (provider === "openai" ? env.OPENAI_BASE_URL : undefined) ??
+    BASE_URLS[provider]
+  );
+}
+
 /** 返回 AI SDK 的模型实例;仅在已配置对应密钥时可用。 */
-export function getChatModel(env: AiEnv = getAiEnv()) {
+export function getChatModel(env: AiEnv = getAiEnv(), policy?: ChatRequestPolicy) {
   const { provider, model } = resolveProviderSelection(env);
 
   if (provider === "anthropic") {
     const apiKey = env.ANTHROPIC_API_KEY;
     if (!apiKey) throw new AiNotConfiguredError();
-    return createAnthropic({ apiKey })(model);
+    return createAnthropic({ apiKey, baseURL: resolveProviderBaseURL(env, provider) })(model);
   }
 
-  const apiKey = getOpenAiApiKey(env);
+  const apiKey = getProviderApiKey(env, provider);
   if (!apiKey) throw new AiNotConfiguredError();
-  const baseURL = provider === "openai" ? env.OPENAI_BASE_URL : BASE_URLS[provider];
+  const baseURL = resolveProviderBaseURL(env, provider);
   // 显式使用 chat completions:OpenAI 兼容网关普遍不支持 /v1/responses
-  return createOpenAI({ apiKey, baseURL }).chat(model);
+  return createOpenAI({
+    apiKey,
+    baseURL,
+    ...(policy?.structuredGeneration && isOfficialDeepSeekFlash({ provider, model }, baseURL)
+      ? { fetch: officialDeepSeekStructuredFetch(globalThis.fetch) }
+      : {}),
+  }).chat(model);
 }

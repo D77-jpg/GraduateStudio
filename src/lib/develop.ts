@@ -85,7 +85,7 @@ export interface TerminalRunDto {
 
 /** AI 实现阶段的输出 schema(供 agent 使用;路径校验在服务端执行)。 */
 export const implementOutputSchema = z.object({
-  notes: z.string().max(500).describe("实现说明,1-3 句话"),
+  notes: z.string().describe("实现说明,1-3 句话"),
   changes: z
     .array(
       z.object({
@@ -94,23 +94,21 @@ export const implementOutputSchema = z.object({
         content: z.string().describe("create/modify 时为修改后的完整文件内容;delete 时传空字符串"),
       }),
     )
-    .min(1)
-    .max(12),
+    .min(1),
 });
 
 /** AI 计划阶段的输出 schema。 */
 export const planOutputSchema = z.object({
-  title: z.string().min(2).max(60).describe("任务标题"),
-  summary: z.string().min(5).max(500).describe("方案说明,2-4 句"),
+  title: z.string().min(2).describe("任务标题"),
+  summary: z.string().min(5).describe("方案说明,2-4 句"),
   steps: z
     .array(
       z.object({
         action: z.enum(CHANGE_ACTIONS),
         path: z.string().min(1).max(200).describe("项目内相对路径,正斜杠"),
-        reason: z.string().max(200).describe("这一步做什么,一句话"),
+        reason: z.string().describe("这一步做什么,一句话"),
       }),
     )
-    .min(1)
-    .max(10),
-  risks: z.string().max(300).describe("风险或注意事项,可为空字符串"),
+    .min(1),
+  risks: z.string().describe("风险或注意事项,可为空字符串"),
 });

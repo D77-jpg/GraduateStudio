@@ -38,6 +38,7 @@ export const AGENT_STEP_KINDS = [
   "check",
   "fix",
   "note",
+  "diagnostic",
 ] as const;
 
 export type AgentStepKind = (typeof AGENT_STEP_KINDS)[number];
@@ -50,6 +51,7 @@ export const AGENT_STEP_KIND_LABELS: Record<AgentStepKind, string> = {
   check: "自检",
   fix: "修复",
   note: "备注",
+  diagnostic: "诊断",
 };
 
 export const ACTIVE_AGENT_STATUSES: AgentTaskStatus[] = [
@@ -79,7 +81,17 @@ export const agentStepDtoSchema = z.object({
 
 export type AgentStepDto = z.infer<typeof agentStepDtoSchema>;
 
+export const agentExecutionDtoSchema = z.object({
+  engine: z.literal("codex"),
+  mode: z.enum(["local", "full"]),
+  phase: z.enum(["running", "paused", "interrupted", "awaiting_acceptance", "applied_unverified", "completed", "cancelled", "failed"]),
+  attempt: z.number().int().nonnegative(),
+  resumable: z.boolean(),
+  pendingChangeSetId: z.string().nullable(),
+});
+
 export const agentTaskDtoSchema = z.object({
+  execution: agentExecutionDtoSchema.nullable().optional(),
   id: z.string(),
   projectId: z.string(),
   title: z.string(),
@@ -96,3 +108,22 @@ export const agentTaskDtoSchema = z.object({
 });
 
 export type AgentTaskDto = z.infer<typeof agentTaskDtoSchema>;
+
+/** Presentation projection: stale attempts are interrupted, never treated as successful. */
+export function effectiveAgentSteps(task: AgentTaskDto): AgentStepDto[] {
+  const latestIndex = Math.max(
+    -1,
+    ...task.steps
+      .filter((s) => !s.detail.startsWith("FULL_PROJECT_CHECKPOINT"))
+      .map((s) => s.index),
+  );
+  return task.steps.map((step) =>
+    step.status === "running" && (!isActiveStatus(task.status) || step.index < latestIndex)
+      ? {
+          ...step,
+          status: "failed" as const,
+          detail: step.detail || "该次执行已中断；历史记录保留，不代表仍在运行。",
+        }
+      : step,
+  );
+}

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { apiJson } from "@/lib/api-client";
+import { buildRuntimeFixMessage } from "@/lib/runtime-fix";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { SparklesIcon } from "@/components/icons";
@@ -17,6 +18,21 @@ interface RuntimeStatus {
   uptimeSec: number | null;
   exitCode: number | null;
   building: boolean;
+  ready?: boolean;
+  backend?: {
+    managed: boolean;
+    target: string;
+    pid: number | null;
+    status: "starting" | "running" | "failed" | "stopped";
+    ready: boolean;
+    error: string | null;
+    healthScope: "http" | "services";
+    stack?: "python";
+    services?: Array<{
+      name: string;
+      status: "starting" | "running" | "failed" | "stopped";
+    }>;
+  } | null;
 }
 
 interface LogEntry {
@@ -49,9 +65,37 @@ export function RuntimeView({ projectId }: { projectId: string }) {
   const [actionBusy, setActionBusy] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [tab, setTab] = useState<"console" | "problems">("console");
+  const [previewLogin, setPreviewLogin] = useState<{
+    projectId: string;
+    username: string;
+    password: string;
+  } | null>(null);
+  const [previewLoginBusy, setPreviewLoginBusy] = useState(false);
+  const previewLoginInFlight = useRef(false);
   const logBoxRef = useRef<HTMLDivElement>(null);
+  const actionInFlight = useRef(false);
+  const [stopBusy, setStopBusy] = useState(false);
+  const stopInFlight = useRef(false);
+  const controlRevision = useRef(0);
 
   const running = status?.status === "running";
+  const preparing =
+    status?.status === "starting" ||
+    status?.status === "building" ||
+    status?.building === true ||
+    status?.backend?.status === "starting";
+  const starting = preparing || actionBusy === "start" || actionBusy === "restart";
+  const pythonStack =
+    status?.backend?.managed === true &&
+    status.backend.stack === "python" &&
+    status.backend.healthScope === "services";
+  const pythonReady =
+    pythonStack &&
+    running &&
+    status?.ready !== false &&
+    status?.backend?.ready === true &&
+    status.backend.status === "running" &&
+    !status.backend.services?.some((service) => service.status !== "running");
 
   // 轮询循环:状态 + 增量日志(setState 在异步回调中,符合 lint 规则)
   useEffect(() => {
@@ -59,12 +103,16 @@ export function RuntimeView({ projectId }: { projectId: string }) {
     let timer: ReturnType<typeof setTimeout> | null = null;
 
     const tick = async () => {
+      const revision = controlRevision.current;
+      const pollingDuringStop = stopInFlight.current;
       try {
         const data = await apiJson<{ status: RuntimeStatus; logs?: LogEntry[]; nextSeq?: number }>(
           `/api/projects/${projectId}/runtime?logs=1&since=${sinceRef.current}`,
         );
         if (stopped) return;
-        setStatus(data.status);
+        if (revision === controlRevision.current && !pollingDuringStop && !stopInFlight.current) {
+          setStatus(data.status);
+        }
         if (data.logs && data.logs.length > 0) {
           setLogs((prev) => [...prev, ...data.logs!].slice(-1000));
         }
@@ -94,22 +142,43 @@ export function RuntimeView({ projectId }: { projectId: string }) {
 
   const control = useCallback(
     async (action: "start" | "stop" | "restart" | "build") => {
-      setActionBusy(action);
+      const stopping = action === "stop";
+      if (stopping) {
+        // Cancellation must remain available while a long start POST is pending.
+        if (stopInFlight.current) return;
+        stopInFlight.current = true;
+        setStopBusy(true);
+      } else {
+        if (actionInFlight.current || stopInFlight.current || actionBusy !== null || preparing)
+          return;
+        actionInFlight.current = true;
+        setActionBusy(action);
+      }
+      const revision = ++controlRevision.current;
       setActionError(null);
       try {
         await apiJson(`/api/projects/${projectId}/runtime?action=${action}`, { method: "POST" });
-        // 立即轮询一次最新状态
+        if (revision !== controlRevision.current) return;
+        // The latest control wins: an old start response cannot overwrite stop.
         const data = await apiJson<{ status: RuntimeStatus; logs?: LogEntry[]; nextSeq?: number }>(
           `/api/projects/${projectId}/runtime?logs=1&since=${sinceRef.current}`,
         );
-        setStatus(data.status);
+        if (revision === controlRevision.current) setStatus(data.status);
       } catch (err) {
-        setActionError(err instanceof Error ? err.message : "操作失败");
+        if (revision === controlRevision.current) {
+          setActionError(err instanceof Error ? err.message : "操作失败");
+        }
       } finally {
-        setActionBusy(null);
+        if (stopping) {
+          stopInFlight.current = false;
+          setStopBusy(false);
+        } else {
+          actionInFlight.current = false;
+        }
+        if (revision === controlRevision.current) setActionBusy(null);
       }
     },
-    [projectId],
+    [actionBusy, preparing, projectId],
   );
 
   const errorLines = logs
@@ -120,14 +189,11 @@ export function RuntimeView({ projectId }: { projectId: string }) {
     setActionBusy("fix");
     setActionError(null);
     try {
-      const excerpt = errorLines
-        .map((l) => `[${l.stream}] ${l.text}`)
-        .join("\n")
-        .slice(-4000);
+      const message = buildRuntimeFixMessage(errorLines);
       await apiJson(`/api/projects/${projectId}/agent-tasks`, {
         method: "POST",
         body: JSON.stringify({
-          message: `修复项目运行错误。最近的运行输出如下(可能包含编译/运行时错误),请分析并修复相关代码:\n${excerpt || "(无明确错误输出,请检查项目是否能正常运行)"}`,
+          message,
           maxSteps: 9,
         }),
       });
@@ -138,6 +204,38 @@ export function RuntimeView({ projectId }: { projectId: string }) {
     }
   }, [errorLines, projectId]);
 
+  // Credentials are requested only by an explicit click, kept only in memory,
+  // and automatically hidden after one minute (or when this view unmounts).
+  useEffect(() => {
+    if (!previewLogin) return;
+    const timer = setTimeout(() => setPreviewLogin(null), 60_000);
+    return () => clearTimeout(timer);
+  }, [previewLogin]);
+
+  const revealPreviewLogin = async () => {
+    if (status?.backend?.stack !== "python" || previewLoginInFlight.current) return;
+    previewLoginInFlight.current = true;
+    setPreviewLoginBusy(true);
+    setActionError(null);
+    try {
+      const credentials = await apiJson<{ username: string; password: string }>(
+        `/api/projects/${projectId}/runtime?action=preview-login`,
+        { method: "POST" },
+      );
+      setPreviewLogin({
+        projectId,
+        username: credentials.username,
+        password: credentials.password,
+      });
+    } catch {
+      setActionError("无法获取预览账号，请确认 Python 服务已就绪后重试");
+    } finally {
+      previewLoginInFlight.current = false;
+      setPreviewLoginBusy(false);
+    }
+  };
+
+  const visiblePreviewLogin = previewLogin?.projectId === projectId ? previewLogin : null;
   const problems = logs.filter((l) => /error|failed|exception|cannot/i.test(l.text)).slice(-50);
 
   return (
@@ -165,24 +263,30 @@ export function RuntimeView({ projectId }: { projectId: string }) {
 
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {!running ? (
-            <Button size="sm" onClick={() => void control("start")} disabled={actionBusy !== null}>
-              {actionBusy === "start" ? "启动中…" : "Run"}
+            <Button
+              size="sm"
+              onClick={() => void control("start")}
+              disabled={actionBusy !== null || stopBusy || preparing}
+              title="首次启动会准备运行环境，可能需要数分钟；启动中请勿重复点击"
+            >
+              {starting ? "启动/准备环境中…" : "Run"}
             </Button>
-          ) : (
+          ) : null}
+          {running || starting || stopBusy ? (
             <Button
               size="sm"
               variant="secondary"
               onClick={() => void control("stop")}
-              disabled={actionBusy !== null}
+              disabled={stopBusy}
             >
-              {actionBusy === "stop" ? "停止中…" : "Stop"}
+              {stopBusy ? "停止中…" : starting ? "取消启动" : "Stop"}
             </Button>
-          )}
+          ) : null}
           <Button
             size="sm"
             variant="secondary"
             onClick={() => void control("restart")}
-            disabled={actionBusy !== null || !status?.port}
+            disabled={actionBusy !== null || stopBusy || preparing || !status?.port}
           >
             {actionBusy === "restart" ? "重启中…" : "Restart"}
           </Button>
@@ -190,7 +294,7 @@ export function RuntimeView({ projectId }: { projectId: string }) {
             size="sm"
             variant="secondary"
             onClick={() => void control("build")}
-            disabled={actionBusy !== null}
+            disabled={actionBusy !== null || stopBusy || preparing}
           >
             {status?.building ? "构建中…" : "Build"}
           </Button>
@@ -219,6 +323,92 @@ export function RuntimeView({ projectId }: { projectId: string }) {
         </div>
       </div>
 
+      {starting ? (
+        <p role="status" className="mt-3 text-xs text-zinc-500 dark:text-zinc-400">
+          正在准备环境或启动服务，首次可能需要数分钟。请查看下方控制台进度，无需重复点击 Run 或
+          Restart。
+        </p>
+      ) : null}
+
+      {running && !status?.backend ? (
+        <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900 dark:bg-amber-950/20 dark:text-amber-300">
+          当前仅前端页面已就绪，未连接平台管理或显式配置的后端。登录、保存等业务功能仍需后端、数据库等服务；前端能打开不代表全栈运行或业务验收通过。
+        </div>
+      ) : null}
+      {status?.backend ? (
+        <div className="mt-3 rounded-lg border border-zinc-200 bg-white px-3 py-2 text-xs dark:border-zinc-700 dark:bg-zinc-900">
+          <span
+            className={
+              (pythonStack ? pythonReady : status.backend.ready)
+                ? "text-emerald-600"
+                : "text-amber-600"
+            }
+          >
+            {pythonStack
+              ? pythonReady
+                ? "全栈 Python 已就绪"
+                : status.backend.status === "starting"
+                  ? "全栈 Python 启动中"
+                  : "全栈 Python 未就绪"
+              : `${status.backend.healthScope === "services" ? "后端服务" : "后端 HTTP"}：${
+                  status.backend.ready
+                    ? "已就绪"
+                    : status.backend.status === "starting"
+                      ? "连接中"
+                      : "未就绪"
+                }`}
+          </span>
+          <span className="ml-3 text-zinc-500">
+            {status.backend.managed ? "平台管理" : "外部服务"} · {status.backend.target}
+          </span>
+          <span className="ml-3 text-zinc-500">
+            {status.backend.healthScope === "services"
+              ? "验证 MySQL、Redis、backend、worker、beat 服务健康；不代表全部业务验收通过"
+              : "仅验证 HTTP 健康；不代表数据库和全部业务验收通过"}
+          </span>
+          {status.backend.services?.length ? (
+            <ul aria-label="后端服务状态" className="mt-2 flex flex-wrap gap-2">
+              {status.backend.services.map((service) => (
+                <li key={service.name}>
+                  <Badge tone={statusTone(service.status)}>
+                    {service.name}：{STATUS_LABEL[service.status] ?? service.status}
+                  </Badge>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          {status.backend.stack === "python" ? (
+            <div className="mt-2">
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={previewLoginBusy}
+                onClick={() => {
+                  if (visiblePreviewLogin) setPreviewLogin(null);
+                  else void revealPreviewLogin();
+                }}
+              >
+                {previewLoginBusy
+                  ? "获取中…"
+                  : visiblePreviewLogin
+                    ? "隐藏预览账号"
+                    : "查看预览账号"}
+              </Button>
+              {visiblePreviewLogin ? (
+                <div className="mt-2 break-all text-zinc-600 dark:text-zinc-300">
+                  <p>仅供本地开发预览使用，1 分钟后自动隐藏，请勿分享。</p>
+                  <p>用户名：{visiblePreviewLogin.username}</p>
+                  <p>密码：{visiblePreviewLogin.password}</p>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          {status.backend.error ? (
+            <p className="mt-1 text-red-600">{status.backend.error}</p>
+          ) : null}
+        </div>
+      ) : null}
+
       {actionError ? (
         <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600 dark:bg-red-500/10 dark:text-red-400">
           {actionError}
@@ -238,8 +428,8 @@ export function RuntimeView({ projectId }: { projectId: string }) {
         ) : (
           <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
             <p className="text-sm font-medium text-zinc-700 dark:text-zinc-300">
-              {status?.status === "starting" || status?.status === "building"
-                ? "项目启动/构建中,请稍候…(首次会自动安装依赖)"
+              {starting
+                ? "项目启动/构建中，请稍候…首次会准备环境，可能需要数分钟"
                 : status?.status === "failed"
                   ? "项目运行失败,请查看下方控制台输出"
                   : status?.status === "exited"
@@ -250,9 +440,10 @@ export function RuntimeView({ projectId }: { projectId: string }) {
               <Button
                 size="sm"
                 onClick={() => void control("start")}
-                disabled={actionBusy !== null}
+                disabled={actionBusy !== null || stopBusy || preparing}
+                title="首次启动会准备运行环境，可能需要数分钟；启动中请勿重复点击"
               >
-                Run
+                {starting ? "启动/准备环境中…" : "Run"}
               </Button>
             ) : null}
           </div>

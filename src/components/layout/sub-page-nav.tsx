@@ -61,6 +61,7 @@ function ProjectNavigation({ projectId, projectName, current }: SubPageNavProps)
             <li key={stage}>
               <Link
                 href={stageRoute(projectId, stage)}
+                prefetch={true}
                 aria-current={active === stage ? "page" : undefined}
                 title={STAGE_METADATA[stage].description}
                 className={`inline-flex items-center gap-2 rounded-xl px-3 py-2.5 text-xs font-medium transition-colors focus-visible:outline-2 focus-visible:outline-[#0071e3] ${active === stage ? "bg-[#0071e3] text-white shadow-sm" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white"}`}
@@ -83,6 +84,7 @@ function ProjectNavigation({ projectId, projectName, current }: SubPageNavProps)
           <Link
             key={tool.key}
             href={projectRoute(projectId, tool.path)}
+            prefetch={true}
             aria-current={activeTool?.key === tool.key ? "page" : undefined}
             className={`rounded-lg px-2.5 py-1.5 transition-colors focus-visible:outline-2 focus-visible:outline-[#0071e3] ${activeTool?.key === tool.key ? "bg-blue-50 font-medium text-[#0071e3] dark:bg-blue-500/10 dark:text-blue-400" : "text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900 dark:hover:bg-zinc-800 dark:hover:text-white"}`}
           >

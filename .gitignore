@@ -15,6 +15,8 @@
 
 # next.js
 /.next/
+/.next-*/
+/.agent-state/
 /out/
 
 # production
@@ -35,9 +37,25 @@ yarn-error.log*
 !.env.example
 
 # graduatestudio
+/.local/
+/.runtime/
 /.workspace/
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+*.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
+*.log
+*.key
+*.p12
+*.pfx
 *.tsbuildinfo
 
 # vercel
@@ -46,3 +64,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local-only administrative reconciliation and runtime evidence
+/record-verified-test-fix.cjs
+/scripts/verify-backend-evidence.ts
+/docs/backend-evidence-verification.json
