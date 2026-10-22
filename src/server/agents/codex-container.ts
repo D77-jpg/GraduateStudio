@@ -134,14 +134,28 @@ export async function cleanupCodexStage(workspace: string): Promise<void> {
 }
 
 /** The caller MUST supply a disposable stage, not an original project or personal directory. */
+export interface IsolatedCodexOptions {
+  /** 本轮模型；省略时使用 GS_CODEX_MODEL。规划/修复可用更强模型，批量模块用便宜模型。 */
+  model?: string;
+  /** 带对应工具链的 worker 镜像（例如含 JDK17+Maven）；不存在时回退基础镜像。 */
+  image?: string;
+  /** 只读挂载到 /opt/gs-template 的骨架模板，供模型对照约定。 */
+  templateRoot?: string | null;
+  /** 依赖缓存卷（与交付闸门共享），挂到 /cache；worker 仍断网，只能离线复用已缓存的依赖。 */
+  cacheVolume?: string | null;
+}
+
 export async function createIsolatedCodexEngine(
   workspace: string,
   signal?: AbortSignal,
+  options: IsolatedCodexOptions = {},
 ): Promise<{
   engine: AgentEngine;
   metadata: {
     model: string;
     isolation: string;
+    image: string;
+    toolchainFallback: boolean;
     designSkillsRevision: string;
     designSkills: Array<{ id: string; revision: string }>;
   };
@@ -152,7 +166,7 @@ export async function createIsolatedCodexEngine(
   const { stage, owner } = await stageIdentity(workspace);
   if (!(await stat(stage)).isDirectory() || stage.includes(","))
     throw new Error("Invalid isolated Codex stage path.");
-  const model = process.env.GS_CODEX_MODEL?.trim() || "deepseek-flash";
+  const model = options.model?.trim() || process.env.GS_CODEX_MODEL?.trim() || "deepseek-flash";
   const upstream = new URL(process.env.GS_CODEX_BASE_URL?.trim() || "https://api.deepseek.com");
   if (
     upstream.protocol !== "https:" ||
@@ -169,15 +183,31 @@ export async function createIsolatedCodexEngine(
   const key = await credential();
   if (/[\r\n\0]/.test(key)) throw new Error("Invalid model credential.");
   // Fail closed: image inspect never pulls, and both run commands use --pull never and pinned ID.
-  let image: { Id: string; Os: string; Config: { Labels?: Record<string, string> } };
-  try {
-    image = JSON.parse(await docker(["image", "inspect", IMAGE, "--format", "{{json .}}"], signal));
-  } catch {
-    throw new Error(
-      `Required Linux image ${IMAGE} is unavailable; build docker/codex-worker first. No host fallback.`,
-    );
+  let image: { Id: string; Os: string; Config: { Labels?: Record<string, string> } } | undefined;
+  let imageName = IMAGE;
+  let toolchainFallback = false;
+  if (options.image && options.image !== IMAGE) {
+    try {
+      image = JSON.parse(
+        await docker(["image", "inspect", options.image, "--format", "{{json .}}"], signal),
+      );
+      imageName = options.image;
+    } catch {
+      // 工具链镜像未构建：回退基础镜像。agent 将无法在模块内编译该栈，但交付闸门照样会拦住。
+      toolchainFallback = true;
+    }
   }
-  if (image.Os !== "linux" || !/^sha256:[a-f0-9]{64}$/.test(image.Id))
+  if (!image)
+    try {
+      image = JSON.parse(await docker(["image", "inspect", IMAGE, "--format", "{{json .}}"], signal));
+    } catch {
+      throw new Error(
+        `Required Linux image ${IMAGE} is unavailable; build docker/codex-worker first. No host fallback.`,
+      );
+    }
+  if (!image) throw new Error("Isolated Codex requires a Linux worker image.");
+  const workerImage = image;
+  if (workerImage.Os !== "linux" || !/^sha256:[a-f0-9]{64}$/.test(workerImage.Id))
     throw new Error("Isolated Codex requires a Linux worker image.");
   const existing = await stageResources(owner);
   if (existing.containers.length || existing.networks.length || existing.volumes.length)
@@ -299,7 +329,7 @@ export async function createIsolatedCodexEngine(
         ...(pinnedIP ? ["--env", `GS_CODEX_UPSTREAM_IP=${pinnedIP}`] : []),
         "--entrypoint",
         "node",
-        image.Id,
+        workerImage.Id,
         "/opt/gs/gateway.mjs",
       ],
       signal,
@@ -368,7 +398,26 @@ export async function createIsolatedCodexEngine(
           `type=bind,src=${designBundle.root},dst=/opt/gs-design-skills,readonly`,
           "--mount",
           `type=volume,src=${volume},dst=/broker,readonly`,
-          image.Id,
+          ...(options.templateRoot
+            ? ["--mount", `type=bind,src=${options.templateRoot},dst=/opt/gs-template,readonly`]
+            : []),
+          ...(options.cacheVolume
+            ? [
+                "--mount",
+                `type=volume,src=${options.cacheVolume},dst=/cache`,
+                "--env",
+                "GS_M2_REPO=/cache/m2",
+                "--env",
+                "MAVEN_OPTS=-Dmaven.repo.local=/cache/m2",
+                "--env",
+                "npm_config_cache=/cache/npm",
+                "--env",
+                "npm_config_offline=true",
+                "--env",
+                "PIP_CACHE_DIR=/cache/pip",
+              ]
+            : []),
+          workerImage.Id,
           ...translated,
         ],
         {
@@ -496,6 +545,8 @@ export async function createIsolatedCodexEngine(
       metadata: {
         model,
         isolation: ISOLATION,
+        image: imageName,
+        toolchainFallback,
         designSkillsRevision: designBundle.revision,
         designSkills: designBundle.skills,
       },

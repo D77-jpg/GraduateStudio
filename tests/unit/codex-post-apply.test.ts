@@ -10,7 +10,6 @@ const m = vi.hoisted(() => ({
   release: vi.fn(),
   deps: vi.fn(),
   accept: vi.fn(),
-  python: vi.fn(),
   diagnostic: vi.fn(),
   ensure: vi.fn(),
   task: vi.fn(),
@@ -28,10 +27,8 @@ vi.mock("@/server/agents/codex-checkpoint", () => ({
 }));
 vi.mock("@/server/agents/codex-lease", () => ({ acquireCodexProjectLease: m.lease }));
 vi.mock("@/server/agents/codex-dependencies", () => ({ prepareCodexDependencies: m.deps }));
-vi.mock("@/server/agents/codex-acceptance", () => ({ runCodexAcceptance: m.accept }));
-vi.mock("@/server/agents/codex-python-verification", () => ({
-  verifyCodexPythonBackend: m.python,
-}));
+// 应用后验证统一走交付闸门；m.accept 代替 runDeliveryGate(copy, options)。
+vi.mock("@/server/agents/delivery-gate", () => ({ runDeliveryGate: m.accept }));
 vi.mock("@/server/runtime/codex-runtime-diagnostics", () => ({
   collectRuntimeRepairEvidence: m.diagnostic,
 }));
@@ -79,8 +76,6 @@ beforeEach(async () => {
     status: "passed",
     checks: [{ name: "node:test", status: "passed", output: "ok" }],
   });
-  // Default: no Python roots, so the Python verifier contributes no checks.
-  m.python.mockResolvedValue({ status: "blocked", checks: [] });
 });
 afterEach(async () => {
   if (isRunning("task")) await cancel("task");
@@ -148,14 +143,15 @@ describe("post-apply independent engineering verification", () => {
     expect(m.release).toHaveBeenCalledOnce();
   });
   it("preserves recorded command and timing without fabricating unknown metadata", async () => {
-    m.python.mockResolvedValue({
+    m.accept.mockResolvedValue({
       status: "passed",
       checks: [
+        { name: "client:build", status: "passed", output: "ok" },
         {
-          name: "server:python:tests",
+          name: "server:maven:test",
           status: "passed",
-          output: "tests=3",
-          command: "python -m pytest -q",
+          output: "Tests run: 6",
+          command: "mvn -B test",
           durationMs: 1234.5,
         },
       ],
@@ -166,30 +162,21 @@ describe("post-apply independent engineering verification", () => {
     const projected = JSON.parse(detail.slice("ACCEPTANCE_REPORT\n".length));
     expect(projected.checks[0]).not.toHaveProperty("command");
     expect(projected.checks[0]).not.toHaveProperty("durationMs");
-    expect(projected.checks[1]).toMatchObject({
-      command: "python -m pytest -q",
-      durationMs: 1234.5,
-    });
-    expect(projected.limitations.join("\n")).toContain("受控代理下载");
-    expect(projected.limitations.join("\n")).toContain("隔离容器");
-    expect(detail).not.toContain("Python 后端当前没有独立验证器");
-    expect(detail).not.toContain("仅离线准备依赖");
+    expect(projected.checks[1]).toMatchObject({ command: "mvn -B test", durationMs: 1234.5 });
+    expect(projected.limitations.join("\n")).toContain("官方工具链镜像");
+    expect(projected.limitations.join("\n")).toContain("compose.yaml");
     expect((await report()).acceptance.checks[1]).toMatchObject({
-      command: "python -m pytest -q",
+      command: "mvn -B test",
       durationMs: 1234.5,
     });
   });
-  it("does not manufacture durations for dependency blockers or lifecycle errors", async () => {
-    m.deps.mockResolvedValue({ status: "blocked", reason: "cache absent", roots: [] });
+  it("does not manufacture durations for lifecycle errors", async () => {
     m.accept.mockRejectedValue(new Error("fixture failed"));
     await start("project", "task", "user");
     await settle();
     const detail = m.step.mock.calls.at(-1)?.[0].data.detail;
     const projected = JSON.parse(detail.slice("ACCEPTANCE_REPORT\n".length));
-    expect(projected.checks.map((check: { label: string }) => check.label)).toEqual([
-      "隔离依赖准备",
-      "验证流程",
-    ]);
+    expect(projected.checks.map((check: { label: string }) => check.label)).toEqual(["验证流程"]);
     for (const check of projected.checks) {
       expect(check).not.toHaveProperty("durationMs");
       expect(check).not.toHaveProperty("command");
@@ -207,10 +194,12 @@ describe("post-apply independent engineering verification", () => {
     let entered!: () => void;
     const ready = new Promise<void>((r) => (entered = r));
     m.accept.mockImplementation(
-      (_p, signal: AbortSignal) =>
+      (_p, options: { signal: AbortSignal }) =>
         new Promise((_resolve, reject) => {
           entered();
-          signal.addEventListener("abort", () => reject(new Error("aborted")), { once: true });
+          options.signal.addEventListener("abort", () => reject(new Error("aborted")), {
+            once: true,
+          });
         }),
     );
     expect(await start("project", "task", "user")).toBe(true);
@@ -222,38 +211,45 @@ describe("post-apply independent engineering verification", () => {
     expect((await report()).status).toBe("blocked");
     expect(m.release).toHaveBeenCalledOnce();
   });
-  it("runs real isolated Python checks and lets a Python failure fail verification", async () => {
-    m.python.mockResolvedValue({
+  it("verifies the Java backend that the old npm/Python-only path ignored", async () => {
+    await fs.mkdir(path.join(original, "server"));
+    await fs.writeFile(path.join(original, "server", "pom.xml"), "<project/>");
+    m.accept.mockResolvedValue({
       status: "failed",
       checks: [
-        { name: "server:python:tests", status: "failed", output: "pytest evidence: failures=1" },
+        { name: "client:build", status: "passed", output: "ok" },
+        { name: "server:maven:test", status: "failed", output: "cannot find symbol" },
       ],
     });
-    await fs.mkdir(path.join(original, "server"));
-    await fs.writeFile(path.join(original, "server", "requirements.txt"), "pytest");
     await start("project", "task", "user");
     await settle();
-    expect(m.python).toHaveBeenCalledOnce();
+    const copy = m.accept.mock.calls[0][0];
+    expect(m.accept.mock.calls[0][1]).toMatchObject({ tier: "auto" });
+    expect(copy).toContain("post-apply-copy-");
     const r = await report();
     expect(r.status).toBe("failed");
     expect(r.acceptance.checks).toContainEqual(
-      expect.objectContaining({ name: "server:python:tests", status: "failed" }),
+      expect.objectContaining({ name: "server:maven:test", status: "failed" }),
     );
   });
-  it("passes a Python suite that actually ran", async () => {
-    m.python.mockResolvedValue({
-      status: "passed",
-      checks: [
-        { name: "server:python:tests", status: "passed", output: "pytest evidence: tests=3" },
-      ],
-    });
+  it("passes frozen plan smoke to the gate when the task has a full-development journal", async () => {
+    const smoke = [
+      { kind: "http", as: "admin", method: "POST", path: "/api/x", expectStatus: 200, saveAs: { id: "data.id" } },
+      { kind: "http", as: "admin", method: "GET", path: "/api/x/{{id}}", expectStatus: 200 },
+      { kind: "page", as: "admin", route: "/x", expectText: ["X"] },
+    ];
+    await fs.writeFile(
+      path.join(path.dirname(stage), "journal.json"),
+      JSON.stringify({
+        plan: {
+          version: 2,
+          modules: [{ id: "x", title: "X", dependsOn: [], featureIds: ["f"], acceptanceCriteria: ["c"], smoke }],
+        },
+      }),
+    );
     await start("project", "task", "user");
     await settle();
-    const r = await report();
-    expect(r.status).toBe("passed");
-    expect(r.acceptance.checks).toContainEqual(
-      expect.objectContaining({ name: "server:python:tests", status: "passed" }),
-    );
+    expect(m.accept.mock.calls[0][1].smoke).toEqual([{ moduleId: "x", smoke }]);
   });
   it("rejects successful report if actual project changes during verification", async () => {
     m.accept.mockImplementation(async () => {
@@ -265,8 +261,11 @@ describe("post-apply independent engineering verification", () => {
     expect((await report()).status).toBe("failed");
     expect((await report()).error).toContain("项目发生变化");
   });
-  it("reports blocked dependency setup without paid repair or host commands", async () => {
-    m.deps.mockResolvedValue({ status: "blocked", reason: "cache absent", roots: [] });
+  it("reports a blocked gate (e.g. unsupported stack) as blocked without paid repair", async () => {
+    m.accept.mockResolvedValue({
+      status: "blocked",
+      checks: [{ name: "stack:server:gradle", status: "blocked", output: "unsupported" }],
+    });
     await start("project", "task", "user");
     await settle();
     expect((await report()).status).toBe("blocked");

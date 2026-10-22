@@ -10,7 +10,19 @@ export function isPythonCache(name: string): boolean {
   );
 }
 
-const EXCLUDED = new Set(["node_modules", ".git", "dist", "build", ".next", "coverage"]);
+// target/.gradle：Java 构建产物；.venv/venv：Python 虚拟环境（含符号链接，会让清单复制失败）。
+const EXCLUDED = new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  "build",
+  ".next",
+  "coverage",
+  "target",
+  ".gradle",
+  ".venv",
+  "venv",
+]);
 const PRIVATE =
   /^(?:\.env(?:\..*)?|auth\.json|credentials(?:\..*)?|.*\.(?:pem|key|p12|pfx|sqlite|sqlite3|db))$/i;
 export interface WorkspaceInventory {

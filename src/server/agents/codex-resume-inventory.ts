@@ -3,11 +3,11 @@ import path from "node:path";
 import { assertBinaryUnchanged, type WorkspaceInventory } from "./codex-assets";
 
 // These exact directories are already omitted by both inventoryWorkspace and snapshot.
-// Do not allow arbitrary suffixes (e.g. tmp/dist), descendants, or target: target is
-// currently source to those scanners and must not silently escape the text audit.
+// Do not allow arbitrary suffixes (e.g. tmp/dist) or descendants. target/.gradle are now
+// excluded by both scanners too (Java build output produced when the worker runs Maven).
 const BUILD_DIRECTORIES = new Set(
-  ["", "client/", "frontend/", "server/", "backend/"].flatMap((prefix) =>
-    ["dist", "build", ".next", "coverage"].map((name) => prefix + name),
+  ["", "client/", "frontend/", "web/", "server/", "backend/", "api/"].flatMap((prefix) =>
+    ["dist", "build", ".next", "coverage", "target", ".gradle"].map((name) => prefix + name),
   ),
 );
 

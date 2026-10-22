@@ -262,3 +262,16 @@ describe("independent isolated engineering verification", () => {
     expect(state.calls).toHaveLength(0);
   });
 });
+
+describe("regression: 2026-10-17 full task reported passed with an unverified Spring Boot backend", () => {
+  it("never reports passed when a non-Node project exists that npm checks cannot verify", async () => {
+    const dir = await stage({ scripts: { build: "vite build", test: "vitest run" } }, "client");
+    await mkdir(path.join(dir, "client", "node_modules"), { recursive: true });
+    await mkdir(path.join(dir, "server"), { recursive: true });
+    await writeFile(path.join(dir, "server", "pom.xml"), "<project><artifactId>spring-boot</artifactId></project>");
+    const result = await runCodexAcceptance(dir);
+    expect(result.checks.find((c) => c.name === "client:build")?.status).toBe("passed");
+    expect(result.checks.find((c) => c.name === "server:maven:unverified")?.status).toBe("blocked");
+    expect(result.status).toBe("blocked");
+  });
+});

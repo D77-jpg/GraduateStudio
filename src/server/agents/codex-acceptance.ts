@@ -4,6 +4,7 @@ import { lstat, readFile, realpath } from "node:fs/promises";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { safeCodexText } from "@/lib/codex-progress";
+import { scanStackMarkers } from "./stack-profiles";
 
 export interface CodexAcceptanceCheck {
   name: string;
@@ -179,6 +180,16 @@ export async function runCodexAcceptance(
         } else planned.push({ root, script, check });
       }
     }
+    // 缺失即阻塞：本验收器只会执行 npm 脚本。工作区里出现的其他工程（Maven/Gradle/Python…）
+    // 必须以 blocked 出现在报告里，而不是从报告中消失后整体报 passed。
+    // 完整的多栈验证请使用 delivery-gate.ts。
+    for (const marker of await scanStackMarkers(stage))
+      if (marker.kind !== "node")
+        checks.push({
+          name: `${marker.root || "."}:${marker.kind}:unverified`,
+          status: "blocked",
+          output: `识别到 ${marker.root || "."}/${marker.file}，离线 npm 验收无法构建或测试该工程；缺少验证不等于通过。${SCOPE}`,
+        });
     if (!planned.length) return result();
     const image = await docker(["image", "inspect", IMAGE, "--format", "{{json .}}"]);
     let id = "";

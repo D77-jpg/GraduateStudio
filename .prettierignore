@@ -8,3 +8,4 @@ public/
 .next/dev/types/
 *.md
 .workspace/
+resources/templates/

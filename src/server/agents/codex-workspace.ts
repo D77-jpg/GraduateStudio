@@ -4,7 +4,19 @@ import os from "node:os";
 import { isPythonCache } from "./codex-assets";
 import { readSafeEnvExample } from "./codex-env-example";
 
-const EXCLUDED = new Set(["node_modules", ".git", "dist", "build", ".next", "coverage"]);
+// target/.gradle：Java 构建产物；.venv/venv：Python 虚拟环境（含符号链接，会让清单复制失败）。
+const EXCLUDED = new Set([
+  "node_modules",
+  ".git",
+  "dist",
+  "build",
+  ".next",
+  "coverage",
+  "target",
+  ".gradle",
+  ".venv",
+  "venv",
+]);
 const LIMIT = 32 * 1024 * 1024;
 export async function snapshot(root: string): Promise<Map<string, string>> {
   const result = new Map<string, string>();

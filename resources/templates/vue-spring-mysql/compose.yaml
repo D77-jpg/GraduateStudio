@@ -1,0 +1,62 @@
+# 一键启动：docker compose up -d --build --wait
+# 访问前端 http://localhost:${FRONTEND_PORT:-5173} ；演示账号见 delivery/contract.json
+services:
+  mysql:
+    image: mysql:8.0
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root_demo_pwd}
+      MYSQL_DATABASE: graduate
+      MYSQL_USER: graduate
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-graduate_demo_pwd}
+      TZ: Asia/Shanghai
+    command: ["--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -uroot -p$$MYSQL_ROOT_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 40
+      start_period: 20s
+
+  backend:
+    build:
+      context: ./server
+      args:
+        MAVEN_MIRROR: ${MAVEN_MIRROR:-}
+    environment:
+      DB_HOST: mysql
+      DB_NAME: graduate
+      DB_USER: graduate
+      DB_PASSWORD: ${MYSQL_PASSWORD:-graduate_demo_pwd}
+      TZ: Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy
+    ports:
+      - "${BACKEND_PORT:-8080}:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:8080/api/health"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+      start_period: 30s
+
+  frontend:
+    build:
+      context: ./client
+      args:
+        NPM_REGISTRY: ${NPM_REGISTRY:-}
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "${FRONTEND_PORT:-5173}:80"
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+volumes:
+  mysql-data:

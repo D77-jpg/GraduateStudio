@@ -17,6 +17,9 @@ const eslintConfig = defineConfig([
     "next-env.d.ts",
     "node_modules/**",
     ".workspace/**",
+    // 生成项目的骨架模板与闸门执行器不是本产品源码，由其各自工具链检查。
+    "resources/templates/**",
+    "resources/delivery-gate/**",
   ]),
 ]);
 
