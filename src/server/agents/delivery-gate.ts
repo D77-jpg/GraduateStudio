@@ -997,7 +997,14 @@ async function runtimeChecks(input: {
     const hasPages =
       !!contract.frontend && scope.some(({ smoke }) => smoke.some((s) => s.kind === "page"));
     if (hasPages) {
-      const pages = await pageChecks(docker, network, specDir, outDir, signal);
+      const pages = await pageChecks(
+        docker,
+        network,
+        specDir,
+        outDir,
+        [contract.backend.service, contract.frontend!.service],
+        signal,
+      );
       checks.push(...pages.checks);
       if (input.artifactsDir) {
         await fs.mkdir(input.artifactsDir, { recursive: true });
@@ -1072,12 +1079,16 @@ async function pageChecks(
   network: string,
   specDir: string,
   outDir: string,
+  services: string[],
   signal?: AbortSignal,
 ): Promise<{ checks: GateCheck[]; screenshots: string[] }> {
   const version =
     process.env.GS_GATE_PLAYWRIGHT_VERSION?.trim() ||
     /:v(\d+\.\d+\.\d+)/.exec(IMAGES.playwright)?.[1] ||
     "1.49.1";
+  // Docker 守护进程常配 HTTP 代理；Chromium 会遵守代理设置，把内网服务名送进代理得到 502。
+  // 页面检查只访问 compose 内部服务，必须绕过代理（Node 的 fetch 默认就不读代理，所以探针不受影响）。
+  const noProxy = ["localhost", "127.0.0.1", ...services].filter(Boolean).join(",");
   const outcome = await docker(
     [
       // 唯一不加 NO_NEW_PRIVILEGES 的容器：Chromium 的 setuid 沙箱在该选项下起不来。
@@ -1089,6 +1100,10 @@ async function pageChecks(
       "--shm-size",
       "1g",
       ...cacheEnvArgs(),
+      "--env",
+      `NO_PROXY=${noProxy}`,
+      "--env",
+      `no_proxy=${noProxy}`,
       "-v",
       `${CACHE_VOLUME}:/cache`,
       "-v",

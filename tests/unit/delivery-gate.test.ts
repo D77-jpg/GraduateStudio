@@ -208,6 +208,36 @@ describe("delivery gate: absence is never success", () => {
     expect(calls.some((a) => a[0] === "compose" && a.includes("up"))).toBe(false);
   });
 
+  it("bypasses a daemon HTTP proxy for internal page checks", async () => {
+    const contract = {
+      version: 1,
+      backend: { service: "backend", port: 8080, health: "/api/health" },
+      frontend: { service: "web", port: 80 },
+      accounts: [{ role: "admin", username: "admin", password: "x" }],
+      smoke: [],
+    };
+    const { runner, calls } = fakeDocker({});
+    await runDeliveryGate(
+      await project({
+        ...SPRING_VUE,
+        "compose.yaml": "services: {}\n",
+        "delivery/contract.json": JSON.stringify(contract),
+      }),
+      {
+        docker: runner,
+        tier: "full",
+        smoke: [{ moduleId: "m", smoke: [{ kind: "page", as: "admin", route: "/x", expectText: ["X"] }] }],
+      },
+    );
+    const page = calls.find(
+      (a) => a[0] === "run" && a.some((v) => v.startsWith("NO_PROXY=")),
+    );
+    expect(page).toBeDefined();
+    // Chromium 读代理设置，内网服务名必须绕过代理，否则会拿到 502。
+    expect(page).toContain("NO_PROXY=localhost,127.0.0.1,backend,web");
+    expect(page).toContain("no_proxy=localhost,127.0.0.1,backend,web");
+  });
+
   it("refuses to start a compose that reaches for the host, and never runs up", async () => {
     const { runner, calls } = fakeDocker({
       compose: {
