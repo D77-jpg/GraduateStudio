@@ -81,7 +81,11 @@ vi.mock("@/server/agents/codex-context", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/server/agents/codex-context")>();
   return {
     ...actual,
-    loadCodexProjectContext: async () => ({ projectText: "", requirementText: "", architectureText: "" }),
+    loadCodexProjectContext: async () => ({
+      projectText: "",
+      requirementText: "",
+      architectureText: "",
+    }),
     ensureAgentsMd: async () => false,
   };
 });
@@ -139,7 +143,13 @@ const smokeFor = (resource: string, title: string) => [
     expectStatus: 200,
     saveAs: { itemId: "data.id" },
   },
-  { kind: "http", as: "admin", method: "GET", path: `/api/${resource}/{{itemId}}`, expectStatus: 200 },
+  {
+    kind: "http",
+    as: "admin",
+    method: "GET",
+    path: `/api/${resource}/{{itemId}}`,
+    expectStatus: 200,
+  },
   { kind: "page", as: "admin", route: `/${resource}`, expectText: [title] },
 ];
 const passedGate = { status: "passed", checks: [] };
@@ -377,7 +387,11 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
   it("proposes actual local text changes, stays pending, and never writes back or claims acceptance", async () => {
     await execute();
     expect(mocks.run).toHaveBeenCalledTimes(1);
-    expect(mocks.createEngine).toHaveBeenCalledWith(mocks.stage, ctrl.abort.signal, expect.any(Object));
+    expect(mocks.createEngine).toHaveBeenCalledWith(
+      mocks.stage,
+      ctrl.abort.signal,
+      expect.any(Object),
+    );
     expect(mocks.prepareDependencies).toHaveBeenCalledExactlyOnceWith(
       mocks.stage,
       ctrl.abort.signal,
@@ -472,9 +486,7 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
     ).toEqual(passed);
     expect(mocks.propose).toHaveBeenCalledWith(
       expect.objectContaining({
-        summary: expect.stringContaining(
-          "交付闸门：passed",
-        ),
+        summary: expect.stringContaining("交付闸门：passed"),
         changes: [
           {
             action: "modify",
@@ -495,9 +507,7 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
     expect(mocks.runAcceptance).toHaveBeenCalledTimes(1);
     expect(mocks.run).toHaveBeenCalledTimes(1);
     expect(mocks.createEngine).toHaveBeenCalledTimes(1);
-    expect(mocks.propose.mock.calls[0][0].summary).toContain(
-      "交付闸门：blocked",
-    );
+    expect(mocks.propose.mock.calls[0][0].summary).toContain("交付闸门：blocked");
     expect(
       mocks.runStep.mock.calls.filter((call) => String(call[3]).includes("修复交付闸门失败")),
     ).toHaveLength(0);
@@ -536,9 +546,7 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
       expect(mocks.runAcceptance).toHaveBeenCalledTimes(
         stop === "no actual diff" ? 1 : expectedRuns,
       );
-      expect(mocks.propose.mock.calls[0][0].summary).toContain(
-        "交付闸门：failed",
-      );
+      expect(mocks.propose.mock.calls[0][0].summary).toContain("交付闸门：failed");
       expect(
         JSON.parse(await fs.readFile(path.join(fixture, "state/acceptance.json"), "utf8")),
       ).toEqual(stop === "three repair budget" ? fourth : first);
@@ -852,16 +860,17 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
     mocks.runAcceptance.mockResolvedValue(passedGate);
     mocks.run.mockImplementation(async (request: AgentEngineTask) => {
       expectDesignPrompt(request.prompt);
-      if (request.prompt.includes("planning：先产出")) {
-        await expect(
-          fs.stat(path.join(mocks.stage, "design-system/MASTER.md")),
-        ).rejects.toMatchObject({ code: "ENOENT" });
-        await seedDesign(mocks.stage);
-      } else if (request.prompt.includes("只规划，不实现业务代码")) {
+      // 规划提示词同时包含设计指令（"planning：先产出"），所以先判更具体的规划标记。
+      if (request.prompt.includes("只规划，不实现业务代码")) {
         expect(await fs.readFile(path.join(mocks.stage, "design-system/MASTER.md"), "utf8")).toBe(
           designFiles["MASTER.md"],
         );
         await writeStage(".gs-codex/plan.json", JSON.stringify(modulePlan));
+      } else if (request.prompt.includes("planning：先产出")) {
+        await expect(
+          fs.stat(path.join(mocks.stage, "design-system/MASTER.md")),
+        ).rejects.toMatchObject({ code: "ENOENT" });
+        await seedDesign(mocks.stage);
       } else if (request.prompt.includes('本轮只实现模块：{"id":"foundation"')) {
         await writeStage("foundation.ts", "export const inventory = [];\n");
       } else if (request.prompt.includes('本轮只实现模块：{"id":"checkout"')) {
@@ -917,9 +926,7 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
         expect(artifact.sha256).toBe(createHash("sha256").update(bytes).digest("hex"));
       }
     }
-    expect(mocks.propose.mock.calls[0][0].summary).toContain(
-      "设计规范：specified",
-    );
+    expect(mocks.propose.mock.calls[0][0].summary).toContain("设计规范：specified");
     expect(checkpoint.phase).toBe("awaiting_acceptance");
   });
 
@@ -1055,7 +1062,14 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
     await seedDesign();
     mocks.runAcceptance.mockResolvedValue({
       status: "blocked",
-      checks: [{ name: "stack:server:gradle", status: "blocked", cause: "environment", output: "unsupported" }],
+      checks: [
+        {
+          name: "stack:server:gradle",
+          status: "blocked",
+          cause: "environment",
+          output: "unsupported",
+        },
+      ],
     });
     mocks.run.mockImplementation(async (request: AgentEngineTask) => {
       if (request.prompt.includes("只规划，不实现业务代码"))
@@ -1136,23 +1150,26 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
       { ...modulePlan, modules: modulePlan.modules.map((m) => ({ ...m, dependsOn: ["missing"] })) },
       "未知模块依赖",
     ],
-  ])("rejects full plan with %s before any implementation (after one corrective retry)", async (_label, plan, error) => {
-    await seedDesign();
-    mocks.run.mockImplementation(async () => {
-      await writeStage(".gs-codex/plan.json", JSON.stringify(plan));
-      return success;
-    });
-    await execute({ mode: "full" });
-    expect(mocks.run).toHaveBeenCalledTimes(2);
-    expect(mocks.run.mock.calls[1][0].prompt).toContain("上一次计划未通过平台校验");
-    expect(mocks.propose).not.toHaveBeenCalled();
-    expect(lastTaskUpdate()).toMatchObject({
-      status: "failed",
-      error: expect.stringContaining(error as string),
-    });
-    expect(mocks.dispose).toHaveBeenCalledTimes(2);
-    expect(mocks.release).toHaveBeenCalledExactlyOnceWith(task.id);
-  });
+  ])(
+    "rejects full plan with %s before any implementation (after one corrective retry)",
+    async (_label, plan, error) => {
+      await seedDesign();
+      mocks.run.mockImplementation(async () => {
+        await writeStage(".gs-codex/plan.json", JSON.stringify(plan));
+        return success;
+      });
+      await execute({ mode: "full" });
+      expect(mocks.run).toHaveBeenCalledTimes(2);
+      expect(mocks.run.mock.calls[1][0].prompt).toContain("上一次计划未通过平台校验");
+      expect(mocks.propose).not.toHaveBeenCalled();
+      expect(lastTaskUpdate()).toMatchObject({
+        status: "failed",
+        error: expect.stringContaining(error as string),
+      });
+      expect(mocks.dispose).toHaveBeenCalledTimes(2);
+      expect(mocks.release).toHaveBeenCalledExactlyOnceWith(task.id);
+    },
+  );
 
   it("pause abort preserves baseline, partial stage and journal, and classifies paused rather than failed", async () => {
     mocks.run.mockImplementation(async () => {

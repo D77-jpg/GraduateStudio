@@ -295,9 +295,18 @@ export async function executeCodexTask(
       if (signature === preparedSignature) return;
       dependencies = await prepareCodexDependencies(currentCp.stage, ctrl.abort.signal);
       preparedSignature = signature;
-      await logActivity(projectId, "system", `依赖清单已变化，重新准备：${dependencies.status}`, dependencies.reason);
+      await logActivity(
+        projectId,
+        "system",
+        `依赖清单已变化，重新准备：${dependencies.status}`,
+        dependencies.reason,
+      );
     };
-    await fs.writeFile(path.join(stateDir, "dependencies.json"), JSON.stringify(dependencies), "utf8");
+    await fs.writeFile(
+      path.join(stateDir, "dependencies.json"),
+      JSON.stringify(dependencies),
+      "utf8",
+    );
     await logActivity(
       projectId,
       "system",
@@ -309,8 +318,15 @@ export async function executeCodexTask(
     let workerModel: string | undefined;
     const disposeWorker = async () => {
       const current = worker;
+      if (!current) return;
       worker = undefined;
-      if (current) await current.dispose();
+      try {
+        await current.dispose();
+      } catch (error) {
+        // 容器可能仍在运行；放回引用让外层 finally 重新暴露，不能当成已清理。
+        worker = current;
+        throw error;
+      }
     };
     await logActivity(
       projectId,
@@ -345,7 +361,9 @@ export async function executeCodexTask(
       `边界：只允许写入 /workspace；只读资源：/opt/gs-design-skills（设计）${templateRoot(profile) ? "、/opt/gs-template（经过验证的骨架模板，约定以它为准）" : ""}。不要读取密钥或生产数据库，不要提交 Git，不要搜索其他项目。不使用 mock 或假数据替代真实业务与持久化。`,
       "运行环境：Linux 容器，无网络。依赖由平台预先准备（工作区内 node_modules、/cache 下的 Maven/npm 离线缓存），你可以且应该运行构建与测试；无法联网下载。若新增依赖导致离线解析失败，保留依赖声明并在报告中写明，平台交付闸门会在线解析并把结果反馈给你。",
       "完成标准：平台交付闸门会独立执行——干净副本从零安装依赖并构建、运行全部测试、docker compose 启动整套系统、健康检查、计划中的 HTTP 与页面冒烟、重启后持久化复查、浏览器截图。未通过就不算完成。存在 ./gs-verify.sh 时，每次修改后运行它并修到通过再结束本轮。不要声称未执行的检查已通过。",
-      uiOnly ? "仅允许修改 client/；这是用户显式范围。" : "只修改目标所需文件；不要修改 .gs-codex/ 下的平台文件。",
+      uiOnly
+        ? "仅允许修改 client/；这是用户显式范围。"
+        : "只修改目标所需文件；不要修改 .gs-codex/ 下的平台文件。",
       pythonStage
         ? "平台运行契约（不是本开发沙箱的权限）：生成的业务 Python backend/worker 默认具备出站网络，可访问用户配置的本机或外部 HTTP(S) 模型服务，不要实现逐域逐端口人工授权。数据库/缓存仍使用项目内部网。本机模型地址应在平台环境变量 MODEL_ENDPOINT_HOST_ALIAS=host.docker.internal 存在时，将 localhost/127.x/::1 origin 转换为该宿主别名，保留端口路径；非容器部署保持原地址。模型密钥仅服务端保存与使用，外部请求必须超时，不跟随携密钥重定向，不回显密钥。"
         : "",
@@ -510,7 +528,10 @@ export async function executeCodexTask(
         seen.add(fingerprint);
         const prior = await snapshot(currentCp.stage);
         await fs.writeFile(
-          path.join(stateDir, `gate-before-repair-${safeLabel(label)}-${currentCp.attempt}-${repair}.json`),
+          path.join(
+            stateDir,
+            `gate-before-repair-${safeLabel(label)}-${currentCp.attempt}-${repair}.json`,
+          ),
           JSON.stringify(gate),
           "utf8",
         );
@@ -605,7 +626,14 @@ export async function executeCodexTask(
           );
         if (contract.status === "ok" || profile) {
           const gate = await verify("骨架", "full");
-          journal.gates = { ...(journal.gates ?? {}), skeleton: { status: gate.status, at: new Date().toISOString(), summary: summarizeGate(gate) } };
+          journal.gates = {
+            ...(journal.gates ?? {}),
+            skeleton: {
+              status: gate.status,
+              at: new Date().toISOString(),
+              summary: summarizeGate(gate),
+            },
+          };
           await saveJournal();
           if (gate.status !== "passed") pauseForGate("骨架", gate);
           journal.skeleton = "passed";
@@ -668,7 +696,11 @@ export async function executeCodexTask(
       const plan = journal.plan!;
       // 平台冻结的计划回写到 stage，模型读取的永远是校验后的版本。
       await fs.mkdir(path.join(cp.stage, ".gs-codex"), { recursive: true });
-      await fs.writeFile(path.join(cp.stage, ".gs-codex/plan.json"), JSON.stringify(plan, null, 2), "utf8");
+      await fs.writeFile(
+        path.join(cp.stage, ".gs-codex/plan.json"),
+        JSON.stringify(plan, null, 2),
+        "utf8",
+      );
       journal.generated ??= [];
       journal.gates ??= {};
       let lastGate: DeliveryGateResult | undefined;
@@ -704,7 +736,10 @@ export async function executeCodexTask(
           : await verify(
               "最终交付",
               "full",
-              smokeScope(plan, plan.modules.map((m) => m.id)),
+              smokeScope(
+                plan,
+                plan.modules.map((m) => m.id),
+              ),
             );
       if (acceptance.status !== "passed") pauseForGate("最终交付", acceptance);
     } else

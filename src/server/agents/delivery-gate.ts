@@ -5,11 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { StringDecoder } from "node:string_decoder";
 import { inventoryWorkspace } from "./codex-assets";
-import {
-  scanStackMarkers,
-  unsupportedMarkers,
-  type StackMarker,
-} from "./stack-profiles";
+import { scanStackMarkers, unsupportedMarkers, type StackMarker } from "./stack-profiles";
 import {
   CONTRACT_PATH,
   findComposeFile,
@@ -103,6 +99,11 @@ const IMAGES = {
 const BUILD_TIMEOUT_MS = Number(process.env.GS_GATE_BUILD_TIMEOUT_MS) || 15 * 60_000;
 const UP_TIMEOUT_MS = Number(process.env.GS_GATE_UP_TIMEOUT_MS) || 25 * 60_000;
 const RUNNER_DIR = path.resolve(process.cwd(), "resources/delivery-gate");
+/**
+ * 闸门自己的容器一律禁止提权。Playwright 容器例外：Chromium 的 setuid 沙箱在
+ * no-new-privileges 下无法启动，会让页面检查全部误判失败。
+ */
+const NO_NEW_PRIVILEGES = ["--security-opt", "no-new-privileges:true"];
 
 /* ------------------------------------------------------------------ */
 /* 纯函数：状态判定、证据格式化（单元测试覆盖）                           */
@@ -153,7 +154,10 @@ export function classifyCause(output: string, fallback: CheckCause = "code"): Ch
 }
 
 /** 只隐藏宿主环境里真实存在的密钥值；不做会误伤诊断信息的模式匹配，也不截成 3000 字。 */
-export function redactKnownSecrets(text: string, env: NodeJS.ProcessEnv = process.env): string {
+export function redactKnownSecrets(
+  text: string,
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): string {
   let result = text;
   for (const [key, value] of Object.entries(env)) {
     if (!value || value.length < 8) continue;
@@ -208,10 +212,15 @@ export function parseSteps(output: string): Map<string, { code: number; output: 
 }
 
 /** Maven 汇总行（不含 " - in 类名" 的那一行）。 */
-export function mavenTestSummary(output: string): { run: number; failed: number; skipped: number } | null {
+export function mavenTestSummary(
+  output: string,
+): { run: number; failed: number; skipped: number } | null {
   let last: { run: number; failed: number; skipped: number } | null = null;
   for (const line of output.split(/\r?\n/)) {
-    const m = /Tests run:\s*(\d+),\s*Failures:\s*(\d+),\s*Errors:\s*(\d+),\s*Skipped:\s*(\d+)(.*)$/.exec(line);
+    const m =
+      /Tests run:\s*(\d+),\s*Failures:\s*(\d+),\s*Errors:\s*(\d+),\s*Skipped:\s*(\d+)(.*)$/.exec(
+        line,
+      );
     if (m && !/ - in /.test(m[5]))
       last = { run: Number(m[1]), failed: Number(m[2]) + Number(m[3]), skipped: Number(m[4]) };
   }
@@ -220,14 +229,18 @@ export function mavenTestSummary(output: string): { run: number; failed: number;
 
 export function nodeTestEvidence(output: string): boolean {
   const text = output.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, "");
-  if (/no test(?:s| files| suites)?(?: were)? found|no tests? (?:to run|executed)/i.test(text)) return false;
+  if (/no test(?:s| files| suites)?(?: were)? found|no tests? (?:to run|executed)/i.test(text))
+    return false;
   return /\b[1-9]\d*\s+(?:passed|passing)\b|Tests:\s+[1-9]\d*\s+passed|(?:^|\n)\s*(?:#\s*)?pass\s+[1-9]\d*\b|(?:^|\n)\s*ok\s+[1-9]\d*\b/i.test(
     text,
   );
 }
 
 /** 运行时层应当出现的检查清单，事先算出，用于“缺失即 blocked”。 */
-export function expectedRuntimeChecks(contract: DeliveryContract, scope: SmokeScopeEntry[]): string[] {
+export function expectedRuntimeChecks(
+  contract: DeliveryContract,
+  scope: SmokeScopeEntry[],
+): string[] {
   const names = ["runtime:compose-up", "runtime:health:backend"];
   if (contract.frontend) names.push("runtime:health:frontend");
   let persistence = false;
@@ -235,7 +248,9 @@ export function expectedRuntimeChecks(contract: DeliveryContract, scope: SmokeSc
     smoke.forEach((step, index) => {
       if (step.kind === "http") {
         names.push(`smoke:${moduleId}:${index}`);
-        const refs = [...JSON.stringify([step.path, step.body ?? null]).matchAll(/\{\{([A-Za-z_]\w*)\}\}/g)];
+        const refs = [
+          ...JSON.stringify([step.path, step.body ?? null]).matchAll(/\{\{([A-Za-z_]\w*)\}\}/g),
+        ];
         if (step.method === "GET" && refs.some((m) => m[1] !== "rand")) {
           names.push(`persist:${moduleId}:${index}`);
           persistence = true;
@@ -249,7 +264,101 @@ export function expectedRuntimeChecks(contract: DeliveryContract, scope: SmokeSc
 export function composeOverride(services: string[]): string {
   // 去掉所有宿主端口映射：闸门实例与用户正在运行的预览互不抢端口；探针走 compose 内部网络。
   // `!reset` 需要 Docker Compose ≥ 2.24.4。
-  return ["services:", ...services.flatMap((s) => [`  ${JSON.stringify(s)}:`, "    ports: !reset []"])].join("\n") + "\n";
+  // no-new-privileges 阻止容器内提权。这里刻意不加 cap_drop:[ALL]——官方数据库镜像
+  // （postgres/mysql）需要 CHOWN/SETUID/SETGID/DAC_OVERRIDE 才能启动，全丢会让闸门误判为代码问题。
+  return (
+    [
+      "services:",
+      ...services.flatMap((s) => [
+        `  ${JSON.stringify(s)}:`,
+        "    ports: !reset []",
+        "    security_opt:",
+        "      - no-new-privileges:true",
+      ]),
+    ].join("\n") + "\n"
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* compose 安全审计                                                     */
+/* ------------------------------------------------------------------ */
+
+/** 宿主敏感路径：bind mount 或 named-volume device 指到这里等于把宿主机交出去。 */
+const HOST_PATH_DENYLIST =
+  /(docker\.sock|^\/(?:var\/run|run|etc|proc|sys|dev|boot|root|home|usr|var\/lib\/docker)(?:\/|$))/i;
+/** 这些键的值是宿主路径，必须落在工作区副本内。 */
+const HOST_PATH_KEYS = new Set(["source", "device", "context", "file", "path"]);
+/** 出现即拒绝，不看值：没有正当理由让生成的项目需要它们。 */
+const FORBIDDEN_PRESENCE = new Map([
+  ["cap_add", "cap_add（额外内核能力）"],
+  ["devices", "devices（宿主设备直通）"],
+  ["cgroup_parent", "cgroup_parent（可影响宿主 cgroup 层级）"],
+  ["userns_mode", "userns_mode（宿主用户命名空间）"],
+]);
+/** 值必须是特定内容才拒绝。 */
+const FORBIDDEN_VALUES = new Map([
+  ["privileged", "privileged: true（容器等于宿主 root）"],
+  ["network_mode", "network_mode: host（共享宿主网络栈）"],
+  ["pid", "pid: host（可见并干预宿主进程）"],
+  ["ipc", "ipc: host（共享宿主 IPC）"],
+]);
+const FORBIDDEN_SECURITY_OPT =
+  /(seccomp=unconfined|apparmor=unconfined|label:disable|systempaths=unconfined)/i;
+
+function asHostPathProblem(value: string, root: string): string | null {
+  if (!value) return null;
+  // 具名卷（source: dbdata）与相对路径不是宿主路径：相对路径由 compose 按 --project-directory 解析。
+  if (!/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(value)) return null;
+  if (HOST_PATH_DENYLIST.test(value)) return `挂载了宿主敏感路径：${value}`;
+  if (!value.replace(/\\/g, "/").toLowerCase().startsWith(root))
+    return `挂载了工作区副本之外的宿主路径：${value}`;
+  return null;
+}
+
+/**
+ * compose.yaml 是模型生成的，`up --build` 之前必须审计：任何能触达宿主机的配置一律拒绝。
+ * 同时审计原始文件与 `docker compose config` 的规范化输出——后者会展开锚点/合并键并把
+ * 相对路径解析成绝对路径，前者是输出被截断时的兜底。
+ */
+export function auditComposeConfig(config: string, copyRoot: string): string[] {
+  const root = path.resolve(copyRoot).replace(/\\/g, "/").toLowerCase().replace(/\/?$/, "/");
+  const problems: string[] = [];
+  const seen = new Set<string>();
+  const add = (problem: string | null) => {
+    if (problem && !seen.has(problem)) {
+      seen.add(problem);
+      problems.push(problem);
+    }
+  };
+  let listKey = "";
+  for (const line of config.split(/\r?\n/)) {
+    const text = line.trim();
+    if (!text || text.startsWith("#")) continue;
+    if (text.startsWith("- ") || text === "-") {
+      const item = text
+        .slice(1)
+        .trim()
+        .replace(/^["']|["']$/g, "");
+      if (listKey === "security_opt" && FORBIDDEN_SECURITY_OPT.test(item))
+        add(`security_opt 关闭了容器隔离：${item}`);
+      // 原始文件里的短写挂载（"宿主路径:容器路径"）。
+      if (listKey === "volumes" && item.includes(":"))
+        add(asHostPathProblem(item.split(":")[0].trim(), root));
+      continue;
+    }
+    const entry = /^([A-Za-z_][\w-]*):\s*(.*)$/.exec(text);
+    if (!entry) continue;
+    const key = entry[1].toLowerCase();
+    const scalar = entry[2].trim().replace(/^["']|["']$/g, "");
+    listKey = scalar ? "" : key;
+    if (FORBIDDEN_PRESENCE.has(key)) add(FORBIDDEN_PRESENCE.get(key)!);
+    if (key === "security_opt" && FORBIDDEN_SECURITY_OPT.test(scalar))
+      add(`security_opt 关闭了容器隔离：${scalar}`);
+    const forbidden = FORBIDDEN_VALUES.get(key);
+    if (forbidden && (scalar === "true" || scalar === "host")) add(forbidden);
+    if (HOST_PATH_KEYS.has(key)) add(asHostPathProblem(scalar, root));
+  }
+  return problems;
 }
 
 /* ------------------------------------------------------------------ */
@@ -288,7 +397,12 @@ export const defaultDocker: DockerRunner = (args, { timeoutMs, signal, cwd }) =>
       clearTimeout(timer);
       signal?.removeEventListener("abort", stop);
       append(decoder.out.end() + decoder.err.end());
-      resolve({ code, output: redactKnownSecrets(tail(output, OUTPUT_TAIL)), timedOut, spawnError });
+      resolve({
+        code,
+        output: redactKnownSecrets(tail(output, OUTPUT_TAIL)),
+        timedOut,
+        spawnError,
+      });
     };
     child.once("error", () => {
       spawnError = true;
@@ -299,30 +413,49 @@ export const defaultDocker: DockerRunner = (args, { timeoutMs, signal, cwd }) =>
 
 function hostUserArgs(): string[] {
   // Linux 宿主上以宿主用户运行，容器写出的文件宿主可以删除；Docker Desktop 自行映射权限。
-  if (process.platform === "linux" && typeof process.getuid === "function" && typeof process.getgid === "function")
+  if (
+    process.platform === "linux" &&
+    typeof process.getuid === "function" &&
+    typeof process.getgid === "function"
+  )
     return ["--user", `${process.getuid()}:${process.getgid()}`];
   return [];
 }
 
 function cacheEnvArgs(): string[] {
   const args = [
-    "--env", "HOME=/tmp/home",
-    "--env", "CI=true",
-    "--env", "npm_config_cache=/cache/npm",
-    "--env", "npm_config_update_notifier=false",
-    "--env", "PIP_CACHE_DIR=/cache/pip",
-    "--env", "PIP_DISABLE_PIP_VERSION_CHECK=1",
-    "--env", "MAVEN_CONFIG=",
+    "--env",
+    "HOME=/tmp/home",
+    "--env",
+    "CI=true",
+    "--env",
+    "npm_config_cache=/cache/npm",
+    "--env",
+    "npm_config_update_notifier=false",
+    "--env",
+    "PIP_CACHE_DIR=/cache/pip",
+    "--env",
+    "PIP_DISABLE_PIP_VERSION_CHECK=1",
+    "--env",
+    "MAVEN_CONFIG=",
   ];
-  if (process.env.GS_GATE_NPM_REGISTRY) args.push("--env", `npm_config_registry=${process.env.GS_GATE_NPM_REGISTRY}`);
-  if (process.env.GS_GATE_PIP_INDEX) args.push("--env", `PIP_INDEX_URL=${process.env.GS_GATE_PIP_INDEX}`);
+  if (process.env.GS_GATE_NPM_REGISTRY)
+    args.push("--env", `npm_config_registry=${process.env.GS_GATE_NPM_REGISTRY}`);
+  if (process.env.GS_GATE_PIP_INDEX)
+    args.push("--env", `PIP_INDEX_URL=${process.env.GS_GATE_PIP_INDEX}`);
   return args;
 }
 
 export const GATE_CACHE_VOLUME = CACHE_VOLUME;
 
-async function ensureCacheVolume(docker: DockerRunner, signal?: AbortSignal): Promise<string | null> {
-  const inspected = await docker(["volume", "inspect", CACHE_VOLUME], { timeoutMs: 30_000, signal });
+async function ensureCacheVolume(
+  docker: DockerRunner,
+  signal?: AbortSignal,
+): Promise<string | null> {
+  const inspected = await docker(["volume", "inspect", CACHE_VOLUME], {
+    timeoutMs: 30_000,
+    signal,
+  });
   if (inspected.spawnError) return "无法执行 docker：请确认 Docker 已安装并正在运行。";
   if (inspected.code !== 0) {
     const created = await docker(["volume", "create", CACHE_VOLUME], { timeoutMs: 30_000, signal });
@@ -331,8 +464,17 @@ async function ensureCacheVolume(docker: DockerRunner, signal?: AbortSignal): Pr
   // 每次只修正顶层目录权限（便宜）：闸门容器（宿主 uid）与 Codex worker（uid 10001）共用缓存，
   // 两边都以 umask 0000 写入，子目录天然可共享。
   const init = await docker(
-    ["run", "--rm", "-v", `${CACHE_VOLUME}:/cache`, IMAGES.probe, "sh", "-c",
-      "mkdir -p /cache/m2 /cache/npm /cache/pip && chmod 0777 /cache /cache/m2 /cache/npm /cache/pip"],
+    [
+      "run",
+      "--rm",
+      ...NO_NEW_PRIVILEGES,
+      "-v",
+      `${CACHE_VOLUME}:/cache`,
+      IMAGES.probe,
+      "sh",
+      "-c",
+      "mkdir -p /cache/m2 /cache/npm /cache/pip && chmod 0777 /cache /cache/m2 /cache/npm /cache/pip",
+    ],
     { timeoutMs: 10 * 60_000, signal },
   );
   return init.code === 0 ? null : init.output || "无法初始化依赖缓存卷";
@@ -354,21 +496,36 @@ async function runInImage(
   const started = Date.now();
   const outcome = await docker(
     [
-      "run", "--rm",
-      "--name", `gs-gate-${randomUUID()}`,
+      "run",
+      "--rm",
+      "--name",
+      `gs-gate-${randomUUID()}`,
       ...hostUserArgs(),
-      "--network", NETWORK,
-      "--cpus", "2",
-      "--memory", "3g",
-      "--pids-limit", "1024",
-      "--tmpfs", "/tmp:rw,exec,size=1g,mode=1777",
+      "--network",
+      NETWORK,
+      "--cpus",
+      "2",
+      "--memory",
+      "3g",
+      "--pids-limit",
+      "1024",
+      // 不加 --cap-drop ALL：Windows 宿主上容器以 root 运行，丢掉 CAP_CHOWN 会让共享
+      // 缓存卷（跨平台写入、属主不一致）无法修复而构建失败。
+      ...NO_NEW_PRIVILEGES,
+      "--tmpfs",
+      "/tmp:rw,exec,size=1g,mode=1777",
       ...cacheEnvArgs(),
-      "-v", `${CACHE_VOLUME}:/cache`,
-      "-v", `${input.mount}:/w`,
-      "-w", "/w",
-      "--entrypoint", "sh",
+      "-v",
+      `${CACHE_VOLUME}:/cache`,
+      "-v",
+      `${input.mount}:/w`,
+      "-w",
+      "/w",
+      "--entrypoint",
+      "sh",
       input.image,
-      "-c", `umask 0000; mkdir -p /tmp/home; ${input.script}`,
+      "-c",
+      `umask 0000; mkdir -p /tmp/home; ${input.script}`,
     ],
     { timeoutMs: input.timeoutMs ?? BUILD_TIMEOUT_MS, signal: input.signal },
   );
@@ -381,9 +538,13 @@ async function runInImage(
 
 async function readScripts(file: string): Promise<Record<string, string>> {
   try {
-    const manifest = JSON.parse(await fs.readFile(file, "utf8")) as { scripts?: Record<string, unknown> };
+    const manifest = JSON.parse(await fs.readFile(file, "utf8")) as {
+      scripts?: Record<string, unknown>;
+    };
     return Object.fromEntries(
-      Object.entries(manifest.scripts ?? {}).filter((e): e is [string, string] => typeof e[1] === "string" && !!e[1].trim()),
+      Object.entries(manifest.scripts ?? {}).filter(
+        (e): e is [string, string] => typeof e[1] === "string" && !!e[1].trim(),
+      ),
     );
   } catch {
     return {};
@@ -392,15 +553,38 @@ async function readScripts(file: string): Promise<Record<string, string>> {
 
 function infraFailure(name: string, outcome: DockerOutcome, command: string): GateCheck | null {
   if (outcome.spawnError)
-    return { name, status: "blocked", cause: "environment", command, output: "无法启动 docker 客户端；请确认 Docker 已安装并运行。" };
+    return {
+      name,
+      status: "blocked",
+      cause: "environment",
+      command,
+      output: "无法启动 docker 客户端；请确认 Docker 已安装并运行。",
+    };
   if (outcome.timedOut)
-    return { name, status: "failed", cause: classifyCause(outcome.output), command, output: `执行超时。\n${tail(outcome.output)}` };
+    return {
+      name,
+      status: "failed",
+      cause: classifyCause(outcome.output),
+      command,
+      output: `执行超时。\n${tail(outcome.output)}`,
+    };
   if (outcome.code === 125)
-    return { name, status: "blocked", cause: "environment", command, output: `容器无法创建（镜像拉取或 Docker 配置问题）。\n${tail(outcome.output)}` };
+    return {
+      name,
+      status: "blocked",
+      cause: "environment",
+      command,
+      output: `容器无法创建（镜像拉取或 Docker 配置问题）。\n${tail(outcome.output)}`,
+    };
   return null;
 }
 
-async function nodeChecks(docker: DockerRunner, copy: string, marker: StackMarker, signal?: AbortSignal) {
+async function nodeChecks(
+  docker: DockerRunner,
+  copy: string,
+  marker: StackMarker,
+  signal?: AbortSignal,
+) {
   const root = marker.root || ".";
   const scripts = await readScripts(path.join(copy, marker.root, "package.json"));
   const checks: GateCheck[] = [];
@@ -421,7 +605,12 @@ async function nodeChecks(docker: DockerRunner, copy: string, marker: StackMarke
     ...wanted.flatMap((s) => [`npm run ${s}`, `echo "GS_STEP ${s} $?"`]),
   ].join("\n");
   const command = `npm ci|install && ${wanted.map((s) => `npm run ${s}`).join(" && ")}（${IMAGES.node}）`;
-  const outcome = await runInImage(docker, { image: IMAGES.node, mount: path.join(copy, marker.root), script, signal });
+  const outcome = await runInImage(docker, {
+    image: IMAGES.node,
+    mount: path.join(copy, marker.root),
+    script,
+    signal,
+  });
   const infra = infraFailure(`${root}:install`, outcome, command);
   if (infra) return [...checks, infra];
   const steps = parseSteps(outcome.output);
@@ -442,7 +631,13 @@ async function nodeChecks(docker: DockerRunner, copy: string, marker: StackMarke
     const step = steps.get(s);
     const name = `${root}:${s}`;
     if (!step) {
-      checks.push({ name, status: "blocked", cause: "environment", command: `npm run ${s}`, output: tail(outcome.output) });
+      checks.push({
+        name,
+        status: "blocked",
+        cause: "environment",
+        command: `npm run ${s}`,
+        output: tail(outcome.output),
+      });
       continue;
     }
     const evidence = s === "test" ? nodeTestEvidence(step.output) : true;
@@ -453,7 +648,10 @@ async function nodeChecks(docker: DockerRunner, copy: string, marker: StackMarke
       command: `npm run ${s}`,
       exitCode: step.code,
       durationMs: outcome.durationMs,
-      output: (step.code === 0 && !evidence ? "退出码为 0，但没有找到“N passed”之类的已执行测试证据。\n" : "") + tail(step.output),
+      output:
+        (step.code === 0 && !evidence
+          ? "退出码为 0，但没有找到“N passed”之类的已执行测试证据。\n"
+          : "") + tail(step.output),
     });
   }
   return checks;
@@ -466,7 +664,12 @@ function mavenSettingsScript(): string {
   return `mkdir -p /tmp/home/.m2 && printf '%s' '${xml.replace(/'/g, "")}' > /tmp/home/.m2/settings.xml; `;
 }
 
-async function mavenCheck(docker: DockerRunner, copy: string, marker: StackMarker, signal?: AbortSignal): Promise<GateCheck> {
+async function mavenCheck(
+  docker: DockerRunner,
+  copy: string,
+  marker: StackMarker,
+  signal?: AbortSignal,
+): Promise<GateCheck> {
   const root = marker.root || ".";
   const name = `${root}:maven:test`;
   const command = `mvn -B test（${IMAGES.maven}）`;
@@ -479,7 +682,8 @@ async function mavenCheck(docker: DockerRunner, copy: string, marker: StackMarke
   const infra = infraFailure(name, outcome, command);
   if (infra) return infra;
   const step = parseSteps(outcome.output).get("maven");
-  if (!step) return { name, status: "blocked", cause: "environment", command, output: tail(outcome.output) };
+  if (!step)
+    return { name, status: "blocked", cause: "environment", command, output: tail(outcome.output) };
   const summary = mavenTestSummary(step.output);
   if (step.code !== 0)
     return {
@@ -511,7 +715,12 @@ async function mavenCheck(docker: DockerRunner, copy: string, marker: StackMarke
   };
 }
 
-async function pythonCheck(docker: DockerRunner, copy: string, marker: StackMarker, signal?: AbortSignal): Promise<GateCheck> {
+async function pythonCheck(
+  docker: DockerRunner,
+  copy: string,
+  marker: StackMarker,
+  signal?: AbortSignal,
+): Promise<GateCheck> {
   const root = marker.root || ".";
   const name = `${root}:python:test`;
   const command = `pip install && compileall && pytest（${IMAGES.python}）`;
@@ -527,7 +736,12 @@ async function pythonCheck(docker: DockerRunner, copy: string, marker: StackMark
     "python -m pytest -q",
     'echo "GS_STEP test $?"',
   ].join("\n");
-  const outcome = await runInImage(docker, { image: IMAGES.python, mount: path.join(copy, marker.root), script, signal });
+  const outcome = await runInImage(docker, {
+    image: IMAGES.python,
+    mount: path.join(copy, marker.root),
+    script,
+    signal,
+  });
   const infra = infraFailure(name, outcome, command);
   if (infra) return infra;
   const steps = parseSteps(outcome.output);
@@ -545,7 +759,8 @@ async function pythonCheck(docker: DockerRunner, copy: string, marker: StackMark
       };
   }
   const test = steps.get("test");
-  if (!test) return { name, status: "blocked", cause: "environment", command, output: tail(outcome.output) };
+  if (!test)
+    return { name, status: "blocked", cause: "environment", command, output: tail(outcome.output) };
   if (test.code === 5 || !/\b[1-9]\d*\s+passed\b/.test(test.output))
     return {
       name,
@@ -556,7 +771,14 @@ async function pythonCheck(docker: DockerRunner, copy: string, marker: StackMark
       durationMs: outcome.durationMs,
       output: (test.code === 5 ? "pytest 没有收集到任何测试。\n" : "") + tail(test.output),
     };
-  return { name, status: "passed", command, exitCode: 0, durationMs: outcome.durationMs, output: tail(test.output, 2000) };
+  return {
+    name,
+    status: "passed",
+    command,
+    exitCode: 0,
+    durationMs: outcome.durationMs,
+    output: tail(test.output, 2000),
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -607,8 +829,20 @@ async function runtimeChecks(input: {
   const checks: GateCheck[] = [];
   const screenshots: string[] = [];
   const project = `gs-gate-${createHash("sha256").update(copy).digest("hex").slice(0, 10)}`;
-  const base = ["compose", "-p", project, "--project-directory", copy, "-f", path.join(copy, composeFile)];
-  const listed = await docker([...base, "config", "--services"], { timeoutMs: 60_000, signal, cwd: copy });
+  const base = [
+    "compose",
+    "-p",
+    project,
+    "--project-directory",
+    copy,
+    "-f",
+    path.join(copy, composeFile),
+  ];
+  const listed = await docker([...base, "config", "--services"], {
+    timeoutMs: 60_000,
+    signal,
+    cwd: copy,
+  });
   if (listed.code !== 0) {
     checks.push({
       name: "runtime:compose-up",
@@ -621,6 +855,35 @@ async function runtimeChecks(input: {
     return { checks, screenshots };
   }
   const services = listed.output.split(/\s+/).filter((s) => /^[a-zA-Z0-9_.-]+$/.test(s));
+  // 审计发生在 up 之前：compose 由模型生成，一旦带 docker.sock / privileged / 宿主绝对路径挂载，
+  // `up --build` 就等于把宿主机交给生成物。这里拒绝时不启动任何容器。
+  const resolved = await docker([...base, "config"], { timeoutMs: 60_000, signal, cwd: copy });
+  const rawCompose = await fs.readFile(path.join(copy, composeFile), "utf8").catch(() => "");
+  const violations = [
+    ...new Set([
+      ...auditComposeConfig(resolved.output, copy),
+      ...auditComposeConfig(rawCompose, copy),
+    ]),
+  ];
+  if (resolved.code !== 0 || violations.length) {
+    checks.push({
+      name: "runtime:compose-up",
+      status: "failed",
+      cause: violations.length ? "code" : classifyCause(resolved.output),
+      command: "docker compose config",
+      exitCode: resolved.code ?? undefined,
+      output: violations.length
+        ? [
+            "compose 配置被闸门拒绝，未启动任何容器：",
+            ...violations.map((v) => `- ${v}`),
+            "",
+            "规则：只允许挂载工作区副本内的路径；不得使用 privileged / cap_add / devices / host 网络或 PID 命名空间 / 关闭 seccomp。",
+            "这条失败属于代码问题，修复 compose.yaml 后重跑即可。",
+          ].join("\n")
+        : `compose 文件无效。\n${tail(resolved.output)}`,
+    });
+    return { checks, screenshots };
+  }
   const files = [...base];
   if (process.env.GS_GATE_KEEP_PORTS !== "1") {
     const override = path.join(copy, ".gs-gate-override.yaml");
@@ -636,19 +899,33 @@ async function runtimeChecks(input: {
   const network = `${project}_${contract.network ?? "default"}`;
   const diagnostics = async () => {
     const ps = await docker([...files, "ps", "-a"], { timeoutMs: 60_000, signal, cwd: copy });
-    const logs = await docker([...files, "logs", "--no-color", "--tail", "150"], { timeoutMs: 60_000, signal, cwd: copy });
+    const logs = await docker([...files, "logs", "--no-color", "--tail", "150"], {
+      timeoutMs: 60_000,
+      signal,
+      cwd: copy,
+    });
     return `\n--- docker compose ps -a ---\n${tail(ps.output, 3000)}\n--- docker compose logs --tail 150 ---\n${tail(logs.output, 9000)}`;
   };
   const probe = async (mode: "run" | "recheck") =>
     docker(
       [
-        "run", "--rm", ...hostUserArgs(),
-        "--network", network,
-        "--env", `GS_MODE=${mode}`,
-        "-v", `${RUNNER_DIR}:/runner:ro`,
-        "-v", `${specDir}:/spec:ro`,
-        "-v", `${outDir}:/out`,
-        IMAGES.probe, "node", "/runner/smoke-runner.mjs",
+        "run",
+        "--rm",
+        ...hostUserArgs(),
+        ...NO_NEW_PRIVILEGES,
+        "--network",
+        network,
+        "--env",
+        `GS_MODE=${mode}`,
+        "-v",
+        `${RUNNER_DIR}:/runner:ro`,
+        "-v",
+        `${specDir}:/spec:ro`,
+        "-v",
+        `${outDir}:/out`,
+        IMAGES.probe,
+        "node",
+        "/runner/smoke-runner.mjs",
       ],
       { timeoutMs: 8 * 60_000, signal },
     );
@@ -683,13 +960,27 @@ async function runtimeChecks(input: {
     if (contract.frontend) results.push(await frontendHealth(docker, network, contract, signal));
     checks.push(...toChecks(results));
     if (!results.length)
-      checks.push({ name: "runtime:probe", status: "blocked", cause: "environment", output: tail(first.output) });
+      checks.push({
+        name: "runtime:probe",
+        status: "blocked",
+        cause: "environment",
+        output: tail(first.output),
+      });
     const failedRuntime = results.some((r) => !r.ok);
     const hasPersist = scope.some(({ smoke }) =>
-      smoke.some((s) => s.kind === "http" && s.method === "GET" && /\{\{(?!rand\}\})\w+\}\}/.test(JSON.stringify([s.path, s.body ?? null]))),
+      smoke.some(
+        (s) =>
+          s.kind === "http" &&
+          s.method === "GET" &&
+          /\{\{(?!rand\}\})\w+\}\}/.test(JSON.stringify([s.path, s.body ?? null])),
+      ),
     );
     if (hasPersist && !results.some((r) => r.id === "runtime:health:backend" && !r.ok)) {
-      const restart = await docker([...files, "restart", contract.backend.service], { timeoutMs: 5 * 60_000, signal, cwd: copy });
+      const restart = await docker([...files, "restart", contract.backend.service], {
+        timeoutMs: 5 * 60_000,
+        signal,
+        cwd: copy,
+      });
       checks.push({
         name: "persist:restart",
         status: restart.code === 0 ? "passed" : "failed",
@@ -697,9 +988,11 @@ async function runtimeChecks(input: {
         command: `docker compose restart ${contract.backend.service}`,
         output: tail(restart.output, 2000),
       });
-      if (restart.code === 0) checks.push(...toChecks(parseRunnerResults((await probe("recheck")).output)));
+      if (restart.code === 0)
+        checks.push(...toChecks(parseRunnerResults((await probe("recheck")).output)));
     }
-    const hasPages = !!contract.frontend && scope.some(({ smoke }) => smoke.some((s) => s.kind === "page"));
+    const hasPages =
+      !!contract.frontend && scope.some(({ smoke }) => smoke.some((s) => s.kind === "page"));
     if (hasPages) {
       const pages = await pageChecks(docker, network, specDir, outDir, signal);
       checks.push(...pages.checks);
@@ -708,7 +1001,13 @@ async function runtimeChecks(input: {
         for (const shot of pages.screenshots) {
           const local = path.join(outDir, "shots", path.basename(shot));
           const target = path.join(input.artifactsDir, path.basename(shot));
-          if (await fs.copyFile(local, target).then(() => true, () => false)) screenshots.push(target);
+          if (
+            await fs.copyFile(local, target).then(
+              () => true,
+              () => false,
+            )
+          )
+            screenshots.push(target);
         }
       }
     }
@@ -719,7 +1018,10 @@ async function runtimeChecks(input: {
     }
     return { checks, screenshots };
   } finally {
-    await docker([...files, "down", "-v", "--remove-orphans", "--timeout", "10"], { timeoutMs: 5 * 60_000, cwd: copy });
+    await docker([...files, "down", "-v", "--remove-orphans", "--timeout", "10"], {
+      timeoutMs: 5 * 60_000,
+      cwd: copy,
+    });
     await fs.rm(outDir, { recursive: true, force: true }).catch(() => {});
   }
 }
@@ -738,7 +1040,19 @@ if(r.status<400&&t.length>0){console.log("GS_RESULT "+JSON.stringify({id:"runtim
 last="HTTP "+r.status}catch(e){last=String(e?.cause?.code??e?.message??e)}await new Promise(r=>setTimeout(r,2000))}
 console.log("GS_RESULT "+JSON.stringify({id:"runtime:health:frontend",ok:false,detail:"前端 120 秒内不可访问："+last}))`;
   const outcome = await docker(
-    ["run", "--rm", ...hostUserArgs(), "--network", network, IMAGES.probe, "node", "--input-type=module", "-e", script],
+    [
+      "run",
+      "--rm",
+      ...hostUserArgs(),
+      ...NO_NEW_PRIVILEGES,
+      "--network",
+      network,
+      IMAGES.probe,
+      "node",
+      "--input-type=module",
+      "-e",
+      script,
+    ],
     { timeoutMs: 4 * 60_000, signal },
   );
   return (
@@ -758,18 +1072,30 @@ async function pageChecks(
   signal?: AbortSignal,
 ): Promise<{ checks: GateCheck[]; screenshots: string[] }> {
   const version =
-    process.env.GS_GATE_PLAYWRIGHT_VERSION?.trim() || /:v(\d+\.\d+\.\d+)/.exec(IMAGES.playwright)?.[1] || "1.49.1";
+    process.env.GS_GATE_PLAYWRIGHT_VERSION?.trim() ||
+    /:v(\d+\.\d+\.\d+)/.exec(IMAGES.playwright)?.[1] ||
+    "1.49.1";
   const outcome = await docker(
     [
-      "run", "--rm", ...hostUserArgs(),
-      "--network", network,
-      "--shm-size", "1g",
+      // 唯一不加 NO_NEW_PRIVILEGES 的容器：Chromium 的 setuid 沙箱在该选项下起不来。
+      "run",
+      "--rm",
+      ...hostUserArgs(),
+      "--network",
+      network,
+      "--shm-size",
+      "1g",
       ...cacheEnvArgs(),
-      "-v", `${CACHE_VOLUME}:/cache`,
-      "-v", `${RUNNER_DIR}:/runner:ro`,
-      "-v", `${specDir}:/spec:ro`,
-      "-v", `${outDir}:/out`,
-      "--entrypoint", "sh",
+      "-v",
+      `${CACHE_VOLUME}:/cache`,
+      "-v",
+      `${RUNNER_DIR}:/runner:ro`,
+      "-v",
+      `${specDir}:/spec:ro`,
+      "-v",
+      `${outDir}:/out`,
+      "--entrypoint",
+      "sh",
       IMAGES.playwright,
       "-c",
       `mkdir -p /tmp/home /tmp/pw && cd /tmp/pw && npm init -y >/dev/null 2>&1 && npm i --no-audit --no-fund playwright@${version} >/tmp/pw/install.log 2>&1 || { cat /tmp/pw/install.log; exit 3; }; node /runner/page-runner.mjs`,
@@ -800,7 +1126,10 @@ async function pageChecks(
 /* 入口                                                                 */
 /* ------------------------------------------------------------------ */
 
-export async function runDeliveryGate(stage: string, options: DeliveryGateOptions = {}): Promise<DeliveryGateResult> {
+export async function runDeliveryGate(
+  stage: string,
+  options: DeliveryGateOptions = {},
+): Promise<DeliveryGateResult> {
   const docker = options.docker ?? defaultDocker;
   const startedAt = new Date().toISOString();
   const checks: GateCheck[] = [];
@@ -834,7 +1163,8 @@ export async function runDeliveryGate(stage: string, options: DeliveryGateOption
         name: "stack:detect",
         status: "blocked",
         cause: "code",
-        output: "工作区里没有识别到任何工程（package.json / pom.xml / pyproject.toml / requirements.txt 等）。",
+        output:
+          "工作区里没有识别到任何工程（package.json / pom.xml / pyproject.toml / requirements.txt 等）。",
       });
     for (const marker of unsupportedMarkers(markers))
       checks.push({
@@ -855,14 +1185,21 @@ export async function runDeliveryGate(stage: string, options: DeliveryGateOption
     if (supported.length) {
       const cacheProblem = await ensureCacheVolume(docker, options.signal);
       if (cacheProblem) {
-        checks.push({ name: "gate:cache", status: "blocked", cause: "environment", output: tail(cacheProblem) });
+        checks.push({
+          name: "gate:cache",
+          status: "blocked",
+          cause: "environment",
+          output: tail(cacheProblem),
+        });
         return done();
       }
     }
     for (const marker of supported) {
       options.signal?.throwIfAborted();
-      if (marker.kind === "node") checks.push(...(await nodeChecks(docker, copy, marker, options.signal)));
-      else if (marker.kind === "maven") checks.push(await mavenCheck(docker, copy, marker, options.signal));
+      if (marker.kind === "node")
+        checks.push(...(await nodeChecks(docker, copy, marker, options.signal)));
+      else if (marker.kind === "maven")
+        checks.push(await mavenCheck(docker, copy, marker, options.signal));
       else checks.push(await pythonCheck(docker, copy, marker, options.signal));
     }
 
@@ -875,7 +1212,8 @@ export async function runDeliveryGate(stage: string, options: DeliveryGateOption
               name: "delivery:compose",
               status: "blocked",
               cause: "code",
-              output: "项目根目录缺少 compose.yaml。交付物必须能用 `docker compose up` 一键启动（答辩演示同样依赖它）。",
+              output:
+                "项目根目录缺少 compose.yaml。交付物必须能用 `docker compose up` 一键启动（答辩演示同样依赖它）。",
             },
       );
       if (contractLoad.status !== "ok")
@@ -894,7 +1232,10 @@ export async function runDeliveryGate(stage: string, options: DeliveryGateOption
           ...(contract.smoke.length ? [{ moduleId: "skeleton", smoke: contract.smoke }] : []),
           ...(options.smoke ?? []),
         ];
-        const roles = missingRoles(contract, scope.flatMap((s) => s.smoke));
+        const roles = missingRoles(
+          contract,
+          scope.flatMap((s) => s.smoke),
+        );
         checks.push(
           roles.length
             ? {
@@ -903,7 +1244,11 @@ export async function runDeliveryGate(stage: string, options: DeliveryGateOption
                 cause: "code",
                 output: `冒烟检查引用的角色在契约 accounts 中不存在：${roles.join("、")}`,
               }
-            : { name: "delivery:contract", status: "passed", output: `账号角色：${contract.accounts.map((a) => a.role).join("、") || "无"}` },
+            : {
+                name: "delivery:contract",
+                status: "passed",
+                output: `账号角色：${contract.accounts.map((a) => a.role).join("、") || "无"}`,
+              },
         );
         const buildBroken = checks.some((c) => c.status === "failed");
         if (composeFile && !roles.length && !buildBroken) {
@@ -934,7 +1279,9 @@ export async function runDeliveryGate(stage: string, options: DeliveryGateOption
       name: "gate:error",
       status: "blocked",
       cause: options.signal?.aborted ? "environment" : classifyCause(String(error), "environment"),
-      output: options.signal?.aborted ? "闸门已取消。" : `闸门执行异常：${String(error instanceof Error ? error.message : error)}`,
+      output: options.signal?.aborted
+        ? "闸门已取消。"
+        : `闸门执行异常：${String(error instanceof Error ? error.message : error)}`,
     });
     return done();
   } finally {
@@ -942,7 +1289,10 @@ export async function runDeliveryGate(stage: string, options: DeliveryGateOption
   }
 
   function done(): DeliveryGateResult {
-    const finalChecks = finalizeChecks(checks, expected).map((c) => ({ ...c, output: redactKnownSecrets(c.output) }));
+    const finalChecks = finalizeChecks(checks, expected).map((c) => ({
+      ...c,
+      output: redactKnownSecrets(c.output),
+    }));
     return {
       version: 1,
       status: decideGateStatus(finalChecks),

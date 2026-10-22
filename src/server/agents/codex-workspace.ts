@@ -1,10 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
-import { isPythonCache } from "./codex-assets";
+import { isJavaBuildOutput, isPythonCache } from "./codex-assets";
 import { readSafeEnvExample } from "./codex-env-example";
 
-// target/.gradle：Java 构建产物；.venv/venv：Python 虚拟环境（含符号链接，会让清单复制失败）。
+// .venv/venv：Python 虚拟环境（含符号链接，会让清单复制失败）。
 const EXCLUDED = new Set([
   "node_modules",
   ".git",
@@ -12,8 +12,6 @@ const EXCLUDED = new Set([
   "build",
   ".next",
   "coverage",
-  "target",
-  ".gradle",
   ".venv",
   "venv",
 ]);
@@ -29,6 +27,7 @@ export async function snapshot(root: string): Promise<Map<string, string>> {
       if (
         EXCLUDED.has(entry.name) ||
         isPythonCache(entry.name) ||
+        (entry.isDirectory() && (await isJavaBuildOutput(directory, entry.name))) ||
         (entry.name.toLowerCase().startsWith(".env") && !example) ||
         /^(?:auth\.json|credentials(?:\..*)?|.*\.(?:pem|key|p12|pfx|sqlite|sqlite3|db))$/i.test(
           entry.name,

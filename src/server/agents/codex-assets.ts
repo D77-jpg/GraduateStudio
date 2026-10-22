@@ -10,7 +10,7 @@ export function isPythonCache(name: string): boolean {
   );
 }
 
-// target/.gradle：Java 构建产物；.venv/venv：Python 虚拟环境（含符号链接，会让清单复制失败）。
+// .venv/venv：Python 虚拟环境（含符号链接，会让清单复制失败）。
 const EXCLUDED = new Set([
   "node_modules",
   ".git",
@@ -18,11 +18,30 @@ const EXCLUDED = new Set([
   "build",
   ".next",
   "coverage",
-  "target",
-  ".gradle",
   ".venv",
   "venv",
 ]);
+const JAVA_BUILD_OUTPUT = new Set(["target", ".gradle"]);
+const JAVA_BUILD_MARKERS = new Set([
+  "pom.xml",
+  "build.gradle",
+  "build.gradle.kts",
+  "settings.gradle",
+  "settings.gradle.kts",
+  "gradlew",
+  "gradlew.bat",
+]);
+/**
+ * `target`/`.gradle` 只有在同级目录存在 Maven/Gradle 标记时才是构建产物。
+ * 否则它只是恰好叫这个名字的源码目录，必须继续进入文本审计，不能被排除规则悄悄吞掉。
+ */
+export async function isJavaBuildOutput(directory: string, name: string): Promise<boolean> {
+  if (!JAVA_BUILD_OUTPUT.has(name)) return false;
+  for (const entry of await fs.readdir(directory, { withFileTypes: true })) {
+    if (entry.isFile() && JAVA_BUILD_MARKERS.has(entry.name)) return true;
+  }
+  return false;
+}
 const PRIVATE =
   /^(?:\.env(?:\..*)?|auth\.json|credentials(?:\..*)?|.*\.(?:pem|key|p12|pfx|sqlite|sqlite3|db))$/i;
 export interface WorkspaceInventory {
@@ -54,7 +73,10 @@ export async function inventoryWorkspace(
         entry.name === ".env.example" && entry.isFile() ? await readSafeEnvExample(file) : null;
       if (
         !example &&
-        (EXCLUDED.has(entry.name) || PRIVATE.test(entry.name) || entry.name.startsWith(".env"))
+        (EXCLUDED.has(entry.name) ||
+          (entry.isDirectory() && (await isJavaBuildOutput(directory, entry.name))) ||
+          PRIVATE.test(entry.name) ||
+          entry.name.startsWith(".env"))
       ) {
         result.excluded.push(rel);
         continue;
