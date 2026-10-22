@@ -17,6 +17,7 @@
 /.next/
 /.next-*/
 /.agent-state/
+/.gate-replay/
 /out/
 
 # production
