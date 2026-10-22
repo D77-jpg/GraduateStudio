@@ -378,6 +378,8 @@ describe("delivery gate: a generated compose cannot reach the host", () => {
       "  dbdata: {}",
     ].join("\n");
     expect(auditComposeConfig(config, root)).toEqual([]);
+    // build.context 常常就是副本根目录本身（等值，不是子目录）。
+    expect(auditComposeConfig(config.replace(path.join(root, "server"), root), root)).toEqual([]);
   });
 
   it.each([

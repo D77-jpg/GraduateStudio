@@ -310,7 +310,10 @@ function asHostPathProblem(value: string, root: string): string | null {
   // 具名卷（source: dbdata）与相对路径不是宿主路径：相对路径由 compose 按 --project-directory 解析。
   if (!/^(?:\/|[A-Za-z]:[\\/]|\\\\)/.test(value)) return null;
   if (HOST_PATH_DENYLIST.test(value)) return `挂载了宿主敏感路径：${value}`;
-  if (!value.replace(/\\/g, "/").toLowerCase().startsWith(root))
+  const base = root.replace(/\/+$/, "");
+  const normalized = value.replace(/\\/g, "/").toLowerCase();
+  // 等值也要放行：build.context 常常就是副本根目录本身。
+  if (normalized !== base && !normalized.startsWith(base + "/"))
     return `挂载了工作区副本之外的宿主路径：${value}`;
   return null;
 }
