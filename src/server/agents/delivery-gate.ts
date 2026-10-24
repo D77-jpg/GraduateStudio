@@ -147,7 +147,7 @@ export function gateEnvironmentProblems(result: { checks: GateCheck[] }): GateCh
 }
 
 const ENV_PATTERNS =
-  /Cannot connect to the Docker daemon|docker daemon is not running|error during connect|pull access denied|manifest unknown|TLS handshake timeout|Temporary failure in name resolution|EAI_AGAIN|ENOTFOUND registry|getaddrinfo|ECONNRESET|ETIMEDOUT|Could not transfer artifact|UnknownHostException|Connection timed out|network is unreachable|no space left on device|toomanyrequests/i;
+  /Cannot connect to the Docker daemon|docker daemon is not running|error during connect|pull access denied|manifest unknown|TLS handshake timeout|Temporary failure in name resolution|EAI_AGAIN|ENOTFOUND registry|getaddrinfo|ECONNRESET|ETIMEDOUT|Could not transfer artifact|UnknownHostException|Connection timed out|network is unreachable|no space left on device|toomanyrequests|failed to fetch anonymous token|failed to resolve source metadata|dial tcp|a connection attempt failed|i\/o timeout|proxyconnect|connection refused/i;
 
 export function classifyCause(output: string, fallback: CheckCause = "code"): CheckCause {
   return ENV_PATTERNS.test(output) ? "environment" : fallback;

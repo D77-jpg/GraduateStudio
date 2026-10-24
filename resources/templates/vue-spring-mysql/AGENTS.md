@@ -28,6 +28,8 @@ Vue 3 + Vite + vue-router（client/） · Spring Boot 3.3 + Spring Data JPA + Fl
 ## 交付契约
 - `delivery/contract.json` 描述服务名/端口/健康检查/登录方式/演示账号/骨架冒烟，平台据此做运行时验收。不要为了“通过”而删除或弱化其中的冒烟。
 - `compose.yaml` 中服务必须有 healthcheck；不要依赖 `.env` 文件（用 `${VAR:-默认值}`）。
+  healthcheck 里探测本机端口请用 `curl -fsS`，**不要用 busybox `wget`**：容器可能继承宿主 Docker 的 HTTP 代理环境变量，
+  busybox wget 不识别 `no_proxy`，会把 `127.0.0.1` 的请求送进代理并拿到 502，服务会被误判为不健康。
 
 ## 工作方式
 - 先读 `.gs-codex/context.md`（需求/架构/数据库设计）与 `docs/PROGRESS.md`。

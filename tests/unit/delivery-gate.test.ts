@@ -12,6 +12,7 @@ import {
   parseSteps,
   expectedRuntimeChecks,
   composeOverride,
+  classifyCause,
   auditComposeConfig,
   redactKnownSecrets,
   formatGateEvidence,
@@ -363,6 +364,18 @@ describe("delivery gate helpers", () => {
   });
   it("strips host ports in the gate override", () => {
     expect(composeOverride(["backend"])).toContain("ports: !reset []");
+  });
+  it("classifies registry/network failures as environment, not code", () => {
+    // 真机回放：docker build 拉 Dockerfile 前端超时被误判为 code，白烧一轮修复。
+    expect(
+      classifyCause(
+        'failed to authorize: failed to fetch anonymous token: Get "https://auth.docker.io/token": dial tcp 162.125.80.6:443: connectex: A connection attempt failed because the connected party did not properly respond',
+      ),
+    ).toBe("environment");
+    expect(
+      classifyCause("failed to resolve source metadata for docker.io/docker/dockerfile:1"),
+    ).toBe("environment");
+    expect(classifyCause("COMPILATION ERROR: cannot find symbol")).toBe("code");
   });
   it("redacts only real secret values and keeps evidence long enough to debug", () => {
     expect(redactKnownSecrets("key=abcdefgh12345 ok", { DEEPSEEK_API_KEY: "abcdefgh12345" })).toBe(

@@ -8,7 +8,8 @@ import { TECH_LAYERS, MODULE_LAYERS, API_METHODS, RELATION_KINDS } from "@/lib/a
  */
 
 const GENERATE_TIMEOUT_MS = 480_000;
-const MAX_OUTPUT_TOKENS = 12_000;
+// deepseek-flash 开启 thinking 时推理与正文共享额度；架构 JSON 较长，12k 会被推理吃光。
+const MAX_OUTPUT_TOKENS = 32_000;
 
 export class ArchitectAgentError extends Error {
   constructor(message: string) {
@@ -155,7 +156,8 @@ ${input.requirementText}
 要求:
 1. 功能模块要与需求分析中的功能模块对应,并补充必要的支撑模块(如认证、文件上传)。
 2. API 规划要覆盖每个功能模块的核心操作,粒度适中(不必罗列每个 CRUD 组合)。
-3. 目录结构要能直接指导开发。`,
+3. 目录结构要能直接指导开发。
+4. 硬性数量上限(超过会让结构化校验直接失败,必须合并同类项):技术栈 5-14 项;功能模块 4-10 个;API 6-24 条(同类 CRUD 合并成一条,如「/api/products 增删改查」只列 CRUD 中真正需要的 2-3 条);权限 2-12 条。`,
     schema: architectureOverviewOutputSchema,
     schemaName: "ArchitectureOverview",
     maxOutputTokens: MAX_OUTPUT_TOKENS,
@@ -183,7 +185,8 @@ ${input.architectureSummary}
 
 ${input.existingTableNames.length ? `原表名(供参考,可调整):${input.existingTableNames.join("、")}` : ""}
 
-要求:输出完整的数据库设计(表、字段、索引、关系),要支撑全部需求功能。`,
+要求:输出完整的数据库设计(表、字段、索引、关系),要支撑全部需求功能。
+硬性数量上限(超过会让结构化校验直接失败):表 4-12 张(需求里已列出 12 张核心表时不要额外增加辅助表,合并到主表或省略);每张表字段 3-16 个;每表索引不超过 6 个;表间关系 2-14 条。`,
     schema: databaseOnlyOutputSchema,
     schemaName: "DatabaseSchema",
     maxOutputTokens: MAX_OUTPUT_TOKENS,
