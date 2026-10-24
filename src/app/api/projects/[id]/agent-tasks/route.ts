@@ -5,7 +5,11 @@ import { assertProjectOwner, buildCodingContext } from "@/server/agents/context"
 import { detectSupportedGenerationStack } from "@/lib/stack-preflight";
 import { startAgentTask, isRunningInProcess, reapOrphanTasks } from "@/server/agents/runner";
 import { getAiStatus } from "@/server/ai";
-import { loadCodexCheckpoint, codexExecutionMetadata } from "@/server/agents/codex-checkpoint";
+import {
+  loadCodexCheckpoint,
+  codexExecutionMetadata,
+  codexPlanProgress,
+} from "@/server/agents/codex-checkpoint";
 import { isCodexPostApplyVerificationRunning } from "@/server/agents/codex-post-apply";
 import { logActivity } from "@/server/activity";
 import { db } from "@/server/db";
@@ -42,7 +46,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
         }
         return agentTaskDtoSchema.parse({
           ...row,
-          execution: checkpoint ? codexExecutionMetadata(checkpoint) : null,
+          execution: checkpoint
+            ? { ...codexExecutionMetadata(checkpoint), plan: await codexPlanProgress(checkpoint) }
+            : null,
           createdAt: row.createdAt.toISOString(),
           startedAt: row.startedAt?.toISOString() ?? null,
           finishedAt: row.finishedAt?.toISOString() ?? null,

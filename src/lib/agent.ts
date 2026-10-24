@@ -81,6 +81,19 @@ export const agentStepDtoSchema = z.object({
 
 export type AgentStepDto = z.infer<typeof agentStepDtoSchema>;
 
+export const agentPlanModuleDtoSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  status: z.enum(["done", "current", "pending"]),
+});
+
+/** Codex 引擎的计划进度：用户在任务卡上直接看到 8 个模块各自处于什么状态。 */
+export const agentPlanProgressDtoSchema = z.object({
+  done: z.number().int().nonnegative(),
+  total: z.number().int().nonnegative(),
+  modules: z.array(agentPlanModuleDtoSchema),
+});
+
 export const agentExecutionDtoSchema = z.object({
   engine: z.literal("codex"),
   mode: z.enum(["local", "full"]),
@@ -88,6 +101,7 @@ export const agentExecutionDtoSchema = z.object({
   attempt: z.number().int().nonnegative(),
   resumable: z.boolean(),
   pendingChangeSetId: z.string().nullable(),
+  plan: agentPlanProgressDtoSchema.nullable().optional(),
 });
 
 export const agentTaskDtoSchema = z.object({

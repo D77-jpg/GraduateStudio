@@ -159,3 +159,39 @@ export function codexExecutionMetadata(cp: CodexCheckpoint) {
     pendingChangeSetId: cp.pendingChangeSetId,
   };
 }
+
+export type CodexPlanProgress = {
+  done: number;
+  total: number;
+  modules: Array<{ id: string; title: string; status: "done" | "current" | "pending" }>;
+};
+
+/**
+ * 计划模块进度（只读 journal.json）。Codex 引擎的计划此前只存在于磁盘和步骤标题里，
+ * 用户看不出"8 个模块做完了几个、现在在哪个"，这里提供给任务卡展示。
+ */
+export async function codexPlanProgress(cp: CodexCheckpoint): Promise<CodexPlanProgress | null> {
+  try {
+    const raw = JSON.parse(
+      await fs.readFile(path.join(path.dirname(cp.stage), "journal.json"), "utf8"),
+    ) as { plan?: { modules?: unknown } | null; done?: unknown };
+    const modules = Array.isArray(raw.plan?.modules) ? raw.plan.modules : [];
+    const done = new Set(
+      Array.isArray(raw.done) ? raw.done.filter((item): item is string => typeof item === "string") : [],
+    );
+    let currentMarked = false;
+    const list: CodexPlanProgress["modules"] = [];
+    for (const item of modules) {
+      if (!item || typeof item !== "object") continue;
+      const { id, title } = item as { id?: unknown; title?: unknown };
+      if (typeof id !== "string" || typeof title !== "string") continue;
+      const status = done.has(id) ? "done" : currentMarked ? "pending" : "current";
+      if (status !== "done") currentMarked = true;
+      list.push({ id, title, status });
+    }
+    if (!list.length) return null;
+    return { done: list.filter((m) => m.status === "done").length, total: list.length, modules: list };
+  } catch {
+    return null;
+  }
+}
