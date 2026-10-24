@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { useQuery } from "@tanstack/react-query";
 import { apiJson } from "@/lib/api-client";
@@ -29,10 +30,15 @@ interface RecentProject {
 
 function Logo() {
   return (
-    <Link href="/dashboard" className="flex items-center gap-2.5 px-2">
-      <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-foreground text-sm font-bold text-background">
-        G
-      </span>
+    <Link href="/dashboard" className="flex items-center gap-2 px-2">
+      <Image
+        src="/brand/graduatestudio-mark.png"
+        alt=""
+        width={490}
+        height={217}
+        priority
+        className="h-7 w-auto dark:invert"
+      />
       <span className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
         GraduateStudio
       </span>

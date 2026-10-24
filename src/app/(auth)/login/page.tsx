@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { loginAction, type AuthFormState } from "../actions";
 
 const initialState: AuthFormState = {};
@@ -11,8 +12,15 @@ export default function LoginPage() {
 
   return (
     <div className="rounded-[28px] border border-black/[0.06] bg-white p-7 text-[#1d1d1f] shadow-[0_16px_64px_-24px_rgba(29,29,31,0.18)] sm:p-10">
-      <Link href="/" className="text-sm font-semibold tracking-tight text-[#0071e3] transition-colors hover:text-[#005bb5]">
-        GraduateStudio
+      <Link href="/" className="inline-flex" aria-label="GraduateStudio 首页">
+        <Image
+          src="/brand/graduatestudio-lockup.png"
+          alt="GraduateStudio"
+          width={490}
+          height={286}
+          priority
+          className="h-20 w-auto"
+        />
       </Link>
       <h1 className="mt-6 text-3xl font-semibold tracking-tight">欢迎回来</h1>
       <p className="mt-3 text-sm leading-6 text-[#6e6e73]">

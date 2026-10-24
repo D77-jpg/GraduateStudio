@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import { signOutAction } from "@/app/(app)/actions";
 import { LogOutIcon, MenuIcon, SettingsIcon } from "@/components/icons";
 import { useUiStore } from "@/stores/ui-store";
@@ -105,8 +106,17 @@ export function Topbar({ user }: { user: { name?: string | null; email?: string 
       >
         <MenuIcon />
       </button>
-      <span className="text-sm font-semibold tracking-tight text-zinc-900 md:hidden dark:text-zinc-100">
-        GraduateStudio
+      <span className="flex items-center gap-1.5 md:hidden">
+        <Image
+          src="/brand/graduatestudio-mark.png"
+          alt=""
+          width={490}
+          height={217}
+          className="h-5 w-auto dark:invert"
+        />
+        <span className="text-sm font-semibold tracking-tight text-zinc-900 dark:text-zinc-100">
+          GraduateStudio
+        </span>
       </span>
 
       {pageTitle ? (
