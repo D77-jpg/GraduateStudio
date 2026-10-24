@@ -1,4 +1,5 @@
 import Link from "next/link";
+import Image from "next/image";
 import { auth } from "@/server/auth";
 import { PROJECT_STAGES, STAGE_LABELS } from "@/lib/projects";
 import { ThemeToggle } from "@/components/layout/theme-toggle";
@@ -33,9 +34,14 @@ export default async function LandingPage() {
       <header className="border-b border-line bg-surface/70 backdrop-blur-xl">
         <div className="landing-shell flex h-[72px] items-center justify-between gap-4">
           <Link href="/" className="flex items-center gap-3" aria-label="GraduateStudio 首页">
-            <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-foreground text-sm font-bold text-background">
-              G<span className="text-accent">.</span>
-            </span>
+            <Image
+              src="/brand/graduatestudio-mark.png"
+              alt=""
+              width={490}
+              height={217}
+              priority
+              className="h-9 w-auto dark:invert"
+            />
             <span className="text-sm font-semibold tracking-tight">
               GraduateStudio
               <span className="mt-0.5 hidden font-mono text-[9px] font-normal tracking-[.14em] text-muted sm:block">

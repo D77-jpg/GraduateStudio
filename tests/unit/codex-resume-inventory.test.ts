@@ -134,4 +134,15 @@ describe("Codex read-only resume inventory policy", () => {
     expect(Object.keys(inventory.hashes)).toEqual(["server/target/index.js"]);
     expect([...(await snapshot(stage)).keys()]).toEqual(["server/target/index.js"]);
   });
+
+  it("treats server/target as build output only once a Maven marker sits beside it", async () => {
+    await fs.mkdir(path.join(stage, "server"), { recursive: true });
+    await fs.writeFile(path.join(stage, "server", "pom.xml"), "<project/>");
+    await generated("server/target");
+    const inventory = await inventoryWorkspace(stage);
+    expect(inventory.excluded).toEqual(["server/target"]);
+    expect(Object.keys(inventory.hashes)).toEqual(["server/pom.xml"]);
+    expect([...(await snapshot(stage)).keys()]).toEqual(["server/pom.xml"]);
+    await expect(assertResumeInventoryAllowed(stage, empty(), inventory)).resolves.toBeUndefined();
+  });
 });

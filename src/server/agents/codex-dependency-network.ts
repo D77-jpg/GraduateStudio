@@ -34,7 +34,28 @@ function docker(args: string[], signal?: AbortSignal, timeoutMs = 30_000): Promi
       overflow = false,
       settled = false;
     const env: NodeJS.ProcessEnv = { NODE_ENV: "production" };
-    for (const key of ["PATH", "Path", "SystemRoot", "WINDIR", "TEMP", "TMP"])
+    // Install/profile roots are only used by the Docker CLI to locate its own CLI plugins
+    // (docker compose lives under Program Files\Docker\cli-plugins). They carry paths, never
+    // credentials; the allowlist still excludes every project-supplied variable.
+    for (const key of [
+      "PATH",
+      "Path",
+      "SystemRoot",
+      "WINDIR",
+      "TEMP",
+      "TMP",
+      "ProgramFiles",
+      "ProgramFiles(x86)",
+      "ProgramW6432",
+      "CommonProgramFiles",
+      "USERPROFILE",
+      "HOME",
+      "PROGRAMDATA",
+      "ProgramData",
+      "DOCKER_HOST",
+      "DOCKER_CONFIG",
+      "DOCKER_CONTEXT",
+    ])
       if (process.env[key]) env[key] = process.env[key];
     const child = spawn("docker", args, {
       shell: false,

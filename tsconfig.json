@@ -82,7 +82,11 @@
     ".next-runtime-network-v10/types/**/*.ts",
     ".next-runtime-network-v10/dev/types/**/*.ts",
     ".next-codex-recovery-v11/types/**/*.ts",
-    ".next-codex-recovery-v11/dev/types/**/*.ts"
+    ".next-codex-recovery-v11/dev/types/**/*.ts",
+    ".next-runtime-compose-v12/types/**/*.ts",
+    ".next-runtime-compose-v12/dev/types/**/*.ts",
+    ".next-runtime-compose-v13/types/**/*.ts",
+    ".next-runtime-compose-v13/dev/types/**/*.ts"
   ],
   "exclude": [
     "node_modules",

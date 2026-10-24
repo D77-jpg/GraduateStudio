@@ -6,8 +6,21 @@ import fs from "node:fs";
 import path from "node:path";
 import { resolveProjectDir } from "@/server/workspace/paths";
 import { logActivity } from "@/server/activity";
-import { detectBackend, externalApiTarget, waitForRuntimeHttp } from "./companion-backend";
+import {
+  detectBackend,
+  detectFrontendProxyPort,
+  externalApiTarget,
+  readRuntimeEnv,
+  waitForRuntimeHttp,
+} from "./companion-backend";
 import { detectPythonStack, startPythonStack, stopPythonStack } from "./python-stack";
+import { detectProjectCompose, startProjectCompose, stopProjectCompose } from "./project-compose";
+import {
+  detectJavaSpringBackend,
+  javaToolchain,
+  startJavaBackend,
+  waitForSpringHealth,
+} from "./java-backend";
 import { frontendRuntimeEnvironment } from "./runtime-environment";
 
 /**
@@ -44,6 +57,9 @@ interface RuntimeProcess {
   generation: number;
   startupAbort?: AbortController;
   pythonStack?: { target: string; assertHealthy: () => Promise<void> };
+  /** Project-provided docker-compose services (database/cache/app) owned by this runtime. */
+  compose?: { project: string; file: string; directory: string };
+  javaBackend?: { stop: () => Promise<void>; failure: () => string | null };
   healthTimer?: ReturnType<typeof setInterval>;
   healthChecking?: boolean;
   cleanupPromise?: Promise<void>;
@@ -72,6 +88,19 @@ function appendLog(rp: RuntimeProcess, stream: LogEntry["stream"], text: string)
   if (rp.logs.length > MAX_LOGS) {
     rp.logs.splice(0, rp.logs.length - MAX_LOGS);
   }
+}
+
+async function isPortFree(port: number): Promise<boolean> {
+  const freeOn = (host: string) =>
+    new Promise<boolean>((resolve) => {
+      const probe = net.createServer();
+      probe.once("error", (error: NodeJS.ErrnoException) =>
+        resolve(host === "::1" && error.code === "EAFNOSUPPORT"),
+      );
+      probe.once("listening", () => probe.close(() => resolve(true)));
+      probe.listen({ port, host, exclusive: true });
+    });
+  return (await freeOn("127.0.0.1")) && (await freeOn("::1"));
 }
 
 /** 端口分配:项目稳定基口 + 占用顺延探测 */
@@ -160,7 +189,7 @@ export interface BackendStatusInfo {
   error: string | null;
   /** Python stacks additionally verify the isolated database, cache and workers. */
   healthScope: "http" | "services";
-  stack?: "python";
+  stack?: "python" | "compose" | "java";
   services?: Array<{ name: string; status: "starting" | "running" | "failed" | "stopped" }>;
 }
 
@@ -371,6 +400,10 @@ async function startRuntimeInternal(projectId: string, userId: string): Promise<
   if (rp.pythonStack || detectPythonStack(resolveProjectDir(projectId)))
     await stopPythonStack(projectId);
   rp.pythonStack = undefined;
+  if (rp.javaBackend) {
+    await rp.javaBackend.stop().catch(() => {});
+    rp.javaBackend = undefined;
+  }
   if (rp.proc?.pid) await killTree(rp.proc.pid);
   if (rp.backendProc?.pid) await killTree(rp.backendProc.pid);
   rp.proc = null;
@@ -396,13 +429,128 @@ async function startRuntimeInternal(projectId: string, userId: string): Promise<
   rp.startedAt = Date.now();
   appendLog(rp, "system", `[runtime] 正在启动项目…`);
 
+  // Reserve the preview port first: backends that validate the request Origin must allow
+  // exactly the dev-server origin this runtime is about to serve.
+  const previewPort = await allocatePort(projectId);
   let apiTarget: string | null = null;
+  let composeHandle: Awaited<ReturnType<typeof startProjectCompose>> = null;
   try {
     await ensureDeps(rp, projectDir, clientDir);
     if (cancelled()) return getRuntimeStatus(projectId);
     apiTarget = externalApiTarget(projectDir);
-    const plan = apiTarget ? null : detectBackend(projectDir);
-    if (!apiTarget && !plan && detectPythonStack(projectDir)) {
+    const nativePlan = apiTarget ? null : detectBackend(projectDir);
+    const pythonDetected = !apiTarget && !nativePlan && detectPythonStack(projectDir);
+    // Project-declared containers (database, cache, sometimes the app itself) start first so
+    // a Maven backend can reach them. Platform-native Python/Express stacks keep priority:
+    // their own compose files often require secrets the platform already injects itself.
+    if (!apiTarget && !nativePlan && !pythonDetected && detectProjectCompose(projectDir)) {
+      appendLog(rp, "system", "[compose] 正在启动项目自带的 docker-compose 服务…");
+      composeHandle = await startProjectCompose({
+        projectId,
+        projectDir,
+        signal: startupAbort.signal,
+        allocatePort,
+        log: (message) => appendLog(rp, "system", message),
+      });
+      if (composeHandle) {
+        rp.compose = {
+          project: composeHandle.project,
+          file: composeHandle.file,
+          directory: composeHandle.directory,
+        };
+        if (composeHandle.apiTarget) apiTarget = composeHandle.apiTarget;
+        appendLog(
+          rp,
+          "system",
+          `[compose] ${composeHandle.services.length} 个服务就绪；数据卷保留，停止时只下线容器。`,
+        );
+      }
+      if (cancelled()) return getRuntimeStatus(projectId);
+    }
+    const plan = nativePlan;
+    const javaPlan =
+      !apiTarget && !plan && !pythonDetected ? detectJavaSpringBackend(projectDir) : null;
+    if (apiTarget && composeHandle) {
+      rp.backend = {
+        managed: true,
+        target: apiTarget,
+        pid: null,
+        status: "starting",
+        ready: false,
+        error: null,
+        healthScope: "http",
+        ...(composeHandle ? { stack: "compose" as const } : {}),
+        services: composeHandle?.services.map((service) => ({
+          name: service.name,
+          status:
+            service.state === "running"
+              ? ("running" as const)
+              : service.state === "failed"
+                ? ("failed" as const)
+                : ("starting" as const),
+        })),
+      };
+    }
+    if (!apiTarget && javaPlan) {
+      const tools = await javaToolchain();
+      if (!tools.java || !tools.mvn)
+        throw new Error("本机未安装 Java 或 Maven，无法启动 Spring Boot 后端");
+      // The generated frontend usually hardcodes its proxy target, so reuse that port
+      // when it is free; otherwise fall back and say plainly that the proxy may not match.
+      const declaredPort = detectFrontendProxyPort(projectDir);
+      const keepDeclared = declaredPort !== null && (await isPortFree(declaredPort));
+      const backendPort = keepDeclared ? declaredPort : await allocatePort(`${projectId}:java`);
+      if (declaredPort !== null && !keepDeclared)
+        appendLog(
+          rp,
+          "system",
+          `[java] 前端代理声明的端口 ${declaredPort} 已被占用，改用 ${backendPort}；若页面接口报错，请把 client/vite.config.js 的代理目标改成该端口，或设置 VITE_DEV_API_TARGET。`,
+        );
+      apiTarget = `http://127.0.0.1:${backendPort}`;
+      rp.backend = {
+        managed: true,
+        target: apiTarget,
+        pid: null,
+        status: "starting",
+        ready: false,
+        error: null,
+        healthScope: "http",
+        stack: "java",
+        services: composeHandle?.services.map((service) => ({
+          name: service.name,
+          status: service.state === "running" ? "running" : "starting",
+        })),
+      };
+      const java = await startJavaBackend({
+        projectId,
+        directory: javaPlan.directory,
+        port: backendPort,
+        // Compose-computed values win: the database port/password must match the containers
+        // this runtime just started, not a stale value in the project's .env.
+        env: {
+          ...readRuntimeEnv(projectDir),
+          ...(composeHandle?.env ?? {}),
+          DB_HOST: "127.0.0.1",
+          SERVER_PORT: String(backendPort),
+          // The Vite proxy forwards the browser Origin, so the backend allowlist must contain
+          // the preview origin or every browser call is rejected with an empty 403.
+          CORS_ALLOWED_ORIGINS: [
+            `http://localhost:${previewPort}`,
+            `http://127.0.0.1:${previewPort}`,
+          ].join(","),
+        },
+        log: (message) => appendLog(rp, "system", message),
+        signal: startupAbort.signal,
+      });
+      rp.javaBackend = java;
+      rp.backend.pid = java.pid;
+      appendLog(
+        rp,
+        "system",
+        `[java] Spring Boot 已启动（PID ${java.pid ?? "-"}）；健康检查使用 /actuator/health。`,
+      );
+    }
+    if (!apiTarget && pythonDetected) {
       const backendPort = await allocatePort(`${projectId}:python`);
       apiTarget = `http://127.0.0.1:${backendPort}`;
       rp.backend = {
@@ -494,7 +642,7 @@ async function startRuntimeInternal(projectId: string, userId: string): Promise<
       };
       backendProc.on("error", (error) => backendFailed(`Spawn failed: ${error.message}`));
       backendProc.on("exit", (code) => backendFailed(`Backend exited (${code})`));
-    } else if (apiTarget) {
+    } else if (apiTarget && !rp.backend) {
       rp.backend = {
         managed: false,
         target: apiTarget,
@@ -524,21 +672,32 @@ async function startRuntimeInternal(projectId: string, userId: string): Promise<
         );
       }
     }
-    if (apiTarget && !rp.pythonStack) {
-      const health = await waitForRuntimeHttp(
-        `${apiTarget}/api/health`,
-        45000,
-        () => cancelled() || rp.status === "failed",
-        true,
-      );
+    // Compose-declared apps were already health-gated by compose itself; Maven backends use
+    // Spring's actuator contract; Express and external servers keep the /api/health contract.
+    if (apiTarget && !rp.pythonStack && rp.backend?.stack !== "compose") {
+      const javaBackend = rp.javaBackend;
+      const health = javaBackend
+        ? await waitForSpringHealth(apiTarget, {
+            timeoutMs: 180_000,
+            cancelled: () => cancelled() || rp.status === "failed",
+            signal: startupAbort.signal,
+          })
+        : await waitForRuntimeHttp(
+            `${apiTarget}/api/health`,
+            45_000,
+            () => cancelled() || rp.status === "failed",
+            true,
+          );
       if (cancelled()) return getRuntimeStatus(projectId);
-      const backendReady = health.ready && getRuntimeStatus(projectId).status !== "failed";
+      const reported = javaBackend?.failure() ?? null;
+      const backendReady =
+        health.ready && !reported && getRuntimeStatus(projectId).status !== "failed";
       rp.backend!.ready = backendReady;
       rp.backend!.status = backendReady ? "running" : "failed";
-      rp.backend!.error = health.error ?? rp.backend!.error;
+      rp.backend!.error = reported ?? health.error ?? rp.backend!.error;
       if (!backendReady)
         throw new Error(
-          `Backend HTTP health failed: ${rp.backend!.error}. Check project .env and backend prerequisites.`,
+          `后端健康检查未通过：${rp.backend!.error}。请检查项目 .env、数据库和构建工具链。`,
         );
     }
   } catch (error) {
@@ -551,6 +710,19 @@ async function startRuntimeInternal(projectId: string, userId: string): Promise<
       `[runtime] ${error instanceof Error ? error.message : "Backend startup failed"}`,
     );
     if (rp.backendProc?.pid) await killTree(rp.backendProc.pid);
+    if (rp.javaBackend) {
+      await rp.javaBackend.stop().catch(() => {});
+      rp.javaBackend = undefined;
+    }
+    if (rp.compose) {
+      await stopProjectCompose({
+        projectId,
+        projectDir,
+        file: rp.compose.file,
+        directory: rp.compose.directory,
+      }).catch(() => {});
+      rp.compose = undefined;
+    }
     if (rp.backend?.stack === "python") {
       rp.backend.status = "failed";
       rp.backend.ready = false;
@@ -566,17 +738,7 @@ async function startRuntimeInternal(projectId: string, userId: string): Promise<
   }
   if (cancelled()) return getRuntimeStatus(projectId);
 
-  // Never adopt an arbitrary port listener: it may be a different project or stale API proxy.
-  let port: number;
-  try {
-    port = await allocatePort(projectId);
-  } catch (error) {
-    rp.status = "failed";
-    rp.ready = false;
-    if (rp.pythonStack) await stopPythonStack(projectId);
-    throw error;
-  }
-  if (cancelled()) return getRuntimeStatus(projectId);
+  const port = previewPort;
   rp.port = port;
 
   const proc = spawn("npm", ["run", "dev", "--", "--port", String(port), "--strictPort"], {
@@ -589,7 +751,14 @@ async function startRuntimeInternal(projectId: string, userId: string): Promise<
       NO_COLOR: "1",
       BROWSER: "none",
       ...(apiTarget
-        ? { VITE_DEV_API_TARGET: apiTarget, VITE_API_PROXY_TARGET: apiTarget, VITE_DEV_PROXY: "on" }
+        ? {
+            // 模板与生成项目的 vite.config 读的是 VITE_API_TARGET；三个别名都传，
+            // 避免运行器与项目配置的键名再次不一致（不一致时 Vite 会回落到 localhost:8080）。
+            VITE_API_TARGET: apiTarget,
+            VITE_DEV_API_TARGET: apiTarget,
+            VITE_API_PROXY_TARGET: apiTarget,
+            VITE_DEV_PROXY: "on",
+          }
         : {}),
     },
     shell: process.platform === "win32",
@@ -721,8 +890,25 @@ async function stopRuntimeInternal(projectId: string, userId: string): Promise<R
   if (rp.pythonStack || detectPythonStack(resolveProjectDir(projectId)))
     await stopPythonStack(projectId);
   rp.pythonStack = undefined;
+  if (rp.javaBackend) {
+    await rp.javaBackend.stop().catch(() => {});
+    rp.javaBackend = undefined;
+  }
   if (rp.backendProc?.pid) await killTree(rp.backendProc.pid);
   rp.backendProc = null;
+  const projectDir = resolveProjectDir(projectId);
+  if (rp.compose) {
+    appendLog(rp, "system", "[compose] 正在下线项目容器（保留数据卷）…");
+    await stopProjectCompose({
+      projectId,
+      projectDir,
+      file: rp.compose.file,
+      directory: rp.compose.directory,
+    }).catch(() => {
+      appendLog(rp, "system", "[compose] 容器下线未确认，请检查 Docker。");
+    });
+    rp.compose = undefined;
+  }
   if (rp.backend) {
     rp.backend.status = "stopped";
     rp.backend.ready = false;

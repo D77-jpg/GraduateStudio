@@ -14,7 +14,9 @@ import { topicProposalPrompt, requirementPrompt, moduleRegeneratePrompt } from "
 
 const GENERATE_TIMEOUT_MS = 480_000;
 // 推理型模型(如 DeepSeek Flash)的思考过程也计入输出预算,需预留足够 token
-const MAX_OUTPUT_TOKENS = 12_000;
+// deepseek-flash 开启 thinking 时推理也消耗同一份额度；12k 会被推理吃光导致正文为空
+// （finishReason=length、收到 0 个文本字符）。结构化产物（架构/需求）需要更大预算。
+const MAX_OUTPUT_TOKENS = 32_000;
 
 export class AiGenerationError extends Error {
   constructor(message: string) {

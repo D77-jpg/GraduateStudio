@@ -59,6 +59,30 @@ export function backendEnvironment(projectDir: string, inherited = process.env):
   };
 }
 
+/**
+ * Many generated projects hardcode `target: "http://localhost:PORT"` in the Vite config
+ * instead of reading VITE_DEV_API_TARGET. The backend must therefore prefer that port,
+ * otherwise the dev server proxies to a port nothing listens on.
+ */
+export function detectFrontendProxyPort(projectDir: string): number | null {
+  for (const name of ["vite.config.ts", "vite.config.js", "vite.config.mjs", "vite.config.mts"]) {
+    const file = path.join(projectDir, "client", name);
+    try {
+      const stat = fs.lstatSync(file);
+      if (!stat.isFile() || stat.isSymbolicLink() || stat.size > 65536) continue;
+      const match = /target:\s*['"`]https?:\/\/[^'"`/:]+:(\d{2,5})['"`]/.exec(
+        fs.readFileSync(file, "utf8"),
+      );
+      if (!match) continue;
+      const port = Number(match[1]);
+      if (Number.isInteger(port) && port >= 1 && port <= 65535) return port;
+    } catch {
+      // Unreadable candidate: keep looking, never guess.
+    }
+  }
+  return null;
+}
+
 export function detectBackend(projectDir: string): BackendPlan | null {
   const directory = path.join(projectDir, "backend");
   const file = path.join(directory, "package.json");

@@ -39,7 +39,7 @@ function codexCommand(): string {
   return "codex";
 }
 
-function safePrompt(task: AgentEngineTask): string {
+function safePrompt(task: AgentEngineTask, nativeWindows: boolean): string {
   const allowed = task.allowedPaths?.length
     ? task.allowedPaths.join(", ")
     : "(按项目需求判断，但不得越过工作区根目录)";
@@ -52,8 +52,14 @@ function safePrompt(task: AgentEngineTask): string {
     `允许修改路径：${allowed}`,
     `禁止修改路径：${forbidden}`,
     "只在工作区内操作；不要读取或输出密钥、令牌、.env 内容。严格遵循任务指定的结果格式；要求 JSON 时只返回 JSON，不要 Markdown 或额外总结。",
-    "Windows 编码硬约束：每条 PowerShell 命令先设置 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding。读取文本必须 Get-Content -Encoding UTF8，写文本必须显式 UTF8，禁止依赖系统默认 ANSI 编码。也可用 Node fs.readFileSync(path, 'utf8') 读取，不得把乱码重新写回源文件。",
-  ].join("\n");
+    // 只有直接在 Windows 宿主上运行 Codex 时才需要编码约束；隔离 worker 是 Linux 容器，
+    // 注入这段只会制造与实际环境矛盾的噪音。
+    nativeWindows
+      ? "Windows 编码硬约束：每条 PowerShell 命令先设置 [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new($false); $OutputEncoding = [Console]::OutputEncoding。读取文本必须 Get-Content -Encoding UTF8，写文本必须显式 UTF8，禁止依赖系统默认 ANSI 编码。也可用 Node fs.readFileSync(path, 'utf8') 读取，不得把乱码重新写回源文件。"
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 }
 
 interface ActiveRun {
@@ -125,7 +131,7 @@ export class CodexEngine implements AgentEngine {
       task.mode === "read-only" ? "read-only" : "workspace-write",
       "--cd",
       path.resolve(task.workspace),
-      safePrompt(task),
+      safePrompt(task, !this.spawnProcess && process.platform === "win32"),
     ];
     let child: ChildProcess;
     try {

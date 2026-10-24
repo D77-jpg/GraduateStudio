@@ -194,6 +194,7 @@ function TaskCard({
   const checkpoint = readFullProjectCheckpoint(task);
   const groups = groupAgentSteps(displaySteps, checkpoint?.modules, checkpoint?.completedModuleIds);
   const codex = task.execution?.engine === "codex";
+  const plan = task.execution?.plan ?? null;
   const awaitingReview = task.execution?.phase === "awaiting_acceptance";
   const appliedUnverified = task.execution?.phase === "applied_unverified";
   const reviewOnly = awaitingReview || appliedUnverified;
@@ -403,6 +404,37 @@ function TaskCard({
                   : "工程检查在独立副本中运行，不会修改已应用文件或自动调用模型。请查看下方报告；修复代码或环境后可重新检查。"
               : "模块执行记录见下方日志；开发执行结束不代表项目验收通过。"}
           </p>
+          {plan ? (
+            <div className="mt-3 rounded-xl border border-zinc-200 bg-white/60 p-4 dark:border-zinc-800 dark:bg-zinc-900/40">
+              <p className="text-xs font-medium text-zinc-600 dark:text-zinc-300">
+                模块进度 {plan.done} / {plan.total}
+              </p>
+              <ol className="mt-2 grid gap-1.5 sm:grid-cols-2">
+                {plan.modules.map((item) => (
+                  <li key={item.id} className="flex items-center justify-between gap-2 text-xs">
+                    <span className="min-w-0 truncate text-zinc-700 dark:text-zinc-300">
+                      {item.title}
+                    </span>
+                    <span
+                      className={
+                        item.status === "done"
+                          ? "shrink-0 text-emerald-600 dark:text-emerald-400"
+                          : item.status === "current"
+                            ? "shrink-0 text-blue-600 dark:text-blue-400"
+                            : "shrink-0 text-zinc-400"
+                      }
+                    >
+                      {item.status === "done"
+                        ? "已完成"
+                        : item.status === "current"
+                          ? "进行中"
+                          : "待执行"}
+                    </span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+          ) : null}
         </div>
       ) : (
         <FullProjectProgress task={task} />

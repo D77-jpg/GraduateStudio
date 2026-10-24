@@ -187,6 +187,20 @@ export async function buildCodingContext(
     : "(暂无变更历史)";
 
   // 系统架构 + 数据库设计(Phase 3 产出;已确认或草稿都纳入上下文)
+  const architectureText = await buildArchitectureText(projectId, userId);
+
+  return {
+    projectText,
+    fileTreeText,
+    selectedFilesText,
+    requirementText,
+    recentChangesText,
+    architectureText,
+  };
+}
+
+/** 架构阶段产出的文本化表示（编码 Agent 与 Codex 完整开发共用）。 */
+export async function buildArchitectureText(projectId: string, userId: string): Promise<string> {
   const { getArchitecture } = await import("@/server/architecture");
   const architecture = await getArchitecture(projectId, userId);
   let architectureText = "(系统架构与数据库设计尚未生成)";
@@ -239,14 +253,7 @@ export async function buildCodingContext(
     architectureText = lines.join("\n");
   }
 
-  return {
-    projectText,
-    fileTreeText,
-    selectedFilesText,
-    requirementText,
-    recentChangesText,
-    architectureText,
-  };
+  return architectureText;
 }
 
 export function renderContextForPrompt(context: CodingContext): string {

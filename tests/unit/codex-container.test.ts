@@ -118,6 +118,8 @@ describe("isolated Codex lifecycle", () => {
     expect(isolated.metadata).toEqual({
       model: "deepseek-flash",
       isolation: "docker-linux-network-none-unix-broker",
+      image: "gs-codex-worker:0.150.1",
+      toolchainFallback: false,
       designSkillsRevision: "b".repeat(64),
       designSkills: [
         { id: "ui-ux-pro-max", revision: "c".repeat(40) },

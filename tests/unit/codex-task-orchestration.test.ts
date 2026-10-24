@@ -66,6 +66,29 @@ vi.mock("@/server/agents/codex-dependencies", () => ({
 vi.mock("@/server/agents/codex-acceptance", () => ({
   runCodexAcceptance: mocks.runAcceptance,
 }));
+// 编排层现在调用交付闸门；沿用 runAcceptance 这个 mock 作为闸门结果来源（签名 (stage, signal)）。
+vi.mock("@/server/agents/delivery-gate", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/agents/delivery-gate")>();
+  return {
+    ...actual,
+    runDeliveryGate: (stage: string, options?: { signal?: AbortSignal }) =>
+      mocks.runAcceptance(stage, options?.signal),
+    ensureGateCacheVolume: async () => null,
+  };
+});
+// 项目上下文来自数据库；夹具里不写 AGENTS.md，避免改变既有变更集断言。
+vi.mock("@/server/agents/codex-context", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@/server/agents/codex-context")>();
+  return {
+    ...actual,
+    loadCodexProjectContext: async () => ({
+      projectText: "",
+      requirementText: "",
+      architectureText: "",
+    }),
+    ensureAgentsMd: async () => false,
+  };
+});
 // Never import the real runtime boundary: the orchestration suite must not inspect
 // containers, retry business tasks, or make model requests even for repair prompts.
 vi.mock("@/server/runtime/codex-runtime-diagnostics", () => ({
@@ -110,8 +133,28 @@ const requirement = {
   ],
   roles: [{ id: "role-a", name: "Customer" }],
 };
+const smokeFor = (resource: string, title: string) => [
+  {
+    kind: "http",
+    as: "admin",
+    method: "POST",
+    path: `/api/${resource}`,
+    body: { name: "fixture" },
+    expectStatus: 200,
+    saveAs: { itemId: "data.id" },
+  },
+  {
+    kind: "http",
+    as: "admin",
+    method: "GET",
+    path: `/api/${resource}/{{itemId}}`,
+    expectStatus: 200,
+  },
+  { kind: "page", as: "admin", route: `/${resource}`, expectText: [title] },
+];
+const passedGate = { status: "passed", checks: [] };
 const modulePlan = {
-  version: 1,
+  version: 2,
   modules: [
     {
       id: "checkout",
@@ -119,6 +162,7 @@ const modulePlan = {
       dependsOn: ["foundation"],
       featureIds: ["feature-b"],
       acceptanceCriteria: ["checkout persists"],
+      smoke: smokeFor("orders", "Checkout"),
     },
     {
       id: "foundation",
@@ -126,6 +170,7 @@ const modulePlan = {
       dependsOn: [],
       featureIds: ["feature-a"],
       acceptanceCriteria: ["inventory persists"],
+      smoke: smokeFor("inventory", "Inventory"),
     },
   ],
 };
@@ -342,7 +387,11 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
   it("proposes actual local text changes, stays pending, and never writes back or claims acceptance", async () => {
     await execute();
     expect(mocks.run).toHaveBeenCalledTimes(1);
-    expect(mocks.createEngine).toHaveBeenCalledWith(mocks.stage, ctrl.abort.signal);
+    expect(mocks.createEngine).toHaveBeenCalledWith(
+      mocks.stage,
+      ctrl.abort.signal,
+      expect.any(Object),
+    );
     expect(mocks.prepareDependencies).toHaveBeenCalledExactlyOnceWith(
       mocks.stage,
       ctrl.abort.signal,
@@ -377,7 +426,7 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
           { action: "modify", path: "client/app.ts", content: "export const checkout = true;\n" },
         ],
         plan: [{ action: "modify", path: "client/app.ts" }],
-        summary: expect.stringContaining("未执行"),
+        summary: expect.stringContaining("不代表可交付"),
       }),
     );
     expect(await fs.readFile(path.join(mocks.root, "client/app.ts"), "utf8")).toBe(
@@ -423,13 +472,13 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
     expect(mocks.run.mock.calls[1][0].prompt).toContain("不准删测试");
     expect(mocks.runStep.mock.calls.map((call) => [call[2], call[3]])).toEqual([
       ["code", "Codex：检查代码 → 修改 → 检查"],
-      ["code", "Codex：修复工程检查失败（1/2）"],
-      ["check", "隔离工程检查：passed（非业务交付验收）"],
-      ["note", "待用户审阅：尚未应用或验收"],
+      ["code", "Codex：修复交付闸门失败（局部修改 1/3）"],
+      ["check", "交付闸门 · 局部修改：passed"],
+      ["note", "待用户审阅：交付闸门 passed"],
     ]);
     expect(
       JSON.parse(
-        await fs.readFile(path.join(fixture, "state/acceptance-before-repair-1-0.json"), "utf8"),
+        await fs.readFile(path.join(fixture, "state/gate-before-repair-局部修改-1-0.json"), "utf8"),
       ),
     ).toEqual(failed);
     expect(
@@ -437,9 +486,7 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
     ).toEqual(passed);
     expect(mocks.propose).toHaveBeenCalledWith(
       expect.objectContaining({
-        summary: expect.stringContaining(
-          "独立工程检查：passed；设计规范：not_required；视觉验收未执行；业务验收未执行，不代表可交付",
-        ),
+        summary: expect.stringContaining("交付闸门：passed"),
         changes: [
           {
             action: "modify",
@@ -460,15 +507,13 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
     expect(mocks.runAcceptance).toHaveBeenCalledTimes(1);
     expect(mocks.run).toHaveBeenCalledTimes(1);
     expect(mocks.createEngine).toHaveBeenCalledTimes(1);
-    expect(mocks.propose.mock.calls[0][0].summary).toContain(
-      "独立工程检查：blocked；设计规范：not_required；视觉验收未执行；业务验收未执行，不代表可交付",
-    );
+    expect(mocks.propose.mock.calls[0][0].summary).toContain("交付闸门：blocked");
     expect(
-      mocks.runStep.mock.calls.filter((call) => String(call[3]).includes("修复工程检查失败")),
+      mocks.runStep.mock.calls.filter((call) => String(call[3]).includes("修复交付闸门失败")),
     ).toHaveLength(0);
   });
 
-  it.each(["repeated evidence", "no actual diff", "two repair budget"])(
+  it.each(["repeated evidence", "no actual diff", "three repair budget"])(
     "stops Codex repairs at %s and truthfully retains failed acceptance",
     async (stop) => {
       const failure = (message: string) => ({
@@ -478,11 +523,13 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
       const first = failure("first failure");
       const second = failure("second failure");
       const third = failure("third failure");
-      if (stop === "two repair budget")
+      const fourth = failure("fourth failure");
+      if (stop === "three repair budget")
         mocks.runAcceptance
           .mockResolvedValueOnce(first)
           .mockResolvedValueOnce(second)
-          .mockResolvedValueOnce(third);
+          .mockResolvedValueOnce(third)
+          .mockResolvedValueOnce(fourth);
       else mocks.runAcceptance.mockResolvedValue(first);
       let invocations = 0;
       mocks.run.mockImplementation(async () => {
@@ -492,19 +539,17 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
         return success;
       });
       await execute();
-      const expectedRuns = stop === "two repair budget" ? 3 : 2;
+      const expectedRuns = stop === "three repair budget" ? 4 : 2;
       expect(mocks.run).toHaveBeenCalledTimes(expectedRuns);
       expect(mocks.createEngine).toHaveBeenCalledTimes(expectedRuns);
       expect(mocks.dispose).toHaveBeenCalledTimes(expectedRuns);
       expect(mocks.runAcceptance).toHaveBeenCalledTimes(
         stop === "no actual diff" ? 1 : expectedRuns,
       );
-      expect(mocks.propose.mock.calls[0][0].summary).toContain(
-        "独立工程检查：failed；设计规范：not_required；视觉验收未执行；业务验收未执行，不代表可交付",
-      );
+      expect(mocks.propose.mock.calls[0][0].summary).toContain("交付闸门：failed");
       expect(
         JSON.parse(await fs.readFile(path.join(fixture, "state/acceptance.json"), "utf8")),
-      ).toEqual(stop === "two repair budget" ? third : first);
+      ).toEqual(stop === "three repair budget" ? fourth : first);
       expect(checkpoint.phase).toBe("awaiting_acceptance");
       expect(lastTaskUpdate()).toMatchObject({ status: "paused", finishedAt: null });
       expect(mocks.releaseLease).toHaveBeenCalledTimes(1);
@@ -755,8 +800,9 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
     );
   });
 
-  it("validates and topologically sorts a full plan, then runs every module through Codex only", async () => {
+  it("validates and topologically sorts a full plan, then gates every module before marking it done", async () => {
     await seedDesign();
+    mocks.runAcceptance.mockResolvedValue(passedGate);
     mocks.run.mockImplementation(async (request: AgentEngineTask) => {
       if (request.prompt.includes("只规划，不实现业务代码"))
         await writeStage(".gs-codex/plan.json", JSON.stringify(modulePlan));
@@ -782,13 +828,20 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
     }
     expect(mocks.runStep.mock.calls.map((call) => [call[1], call[2], call[3]])).toEqual([
       [0, "note", "设计规范：specified · 视觉验收未执行"],
-      [1, "code", "Codex：依据已确认需求规划依赖模块"],
+      [1, "code", "Codex：依据已确认需求规划功能纵切模块（含可执行冒烟）"],
       [2, "code", "Codex 模块：Foundation"],
-      [3, "code", "Codex 模块：Checkout"],
-      [4, "check", "隔离工程检查：blocked（非业务交付验收）"],
-      [5, "note", "设计规范：specified · 视觉验收未执行"],
-      [6, "note", "待用户审阅：尚未应用或验收"],
+      [3, "check", "交付闸门 · 模块 Foundation：passed"],
+      [4, "code", "Codex 模块：Checkout"],
+      [5, "check", "交付闸门 · 模块 Checkout：passed"],
+      [6, "note", "设计规范：specified · 视觉验收未执行"],
+      [7, "note", "待用户审阅：交付闸门 passed"],
     ]);
+    // 每个模块一次闸门；最后一个模块的 full 闸门即最终交付结果，不重复执行。
+    expect(mocks.runAcceptance).toHaveBeenCalledTimes(2);
+    expect((await journal()).gates).toMatchObject({
+      foundation: { status: "passed" },
+      checkout: { status: "passed" },
+    });
     expect((await journal()).done).toEqual(["foundation", "checkout"]);
     expect((await journal()).plan.modules.map((m: { id: string }) => m.id)).toEqual([
       "foundation",
@@ -804,18 +857,20 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
   });
 
   it("plans missing design files before module planning and proposes the real artifacts without claiming visual acceptance", async () => {
+    mocks.runAcceptance.mockResolvedValue(passedGate);
     mocks.run.mockImplementation(async (request: AgentEngineTask) => {
       expectDesignPrompt(request.prompt);
-      if (request.prompt.includes("planning：先产出")) {
-        await expect(
-          fs.stat(path.join(mocks.stage, "design-system/MASTER.md")),
-        ).rejects.toMatchObject({ code: "ENOENT" });
-        await seedDesign(mocks.stage);
-      } else if (request.prompt.includes("只规划，不实现业务代码")) {
+      // 规划提示词同时包含设计指令（"planning：先产出"），所以先判更具体的规划标记。
+      if (request.prompt.includes("只规划，不实现业务代码")) {
         expect(await fs.readFile(path.join(mocks.stage, "design-system/MASTER.md"), "utf8")).toBe(
           designFiles["MASTER.md"],
         );
         await writeStage(".gs-codex/plan.json", JSON.stringify(modulePlan));
+      } else if (request.prompt.includes("planning：先产出")) {
+        await expect(
+          fs.stat(path.join(mocks.stage, "design-system/MASTER.md")),
+        ).rejects.toMatchObject({ code: "ENOENT" });
+        await seedDesign(mocks.stage);
       } else if (request.prompt.includes('本轮只实现模块：{"id":"foundation"')) {
         await writeStage("foundation.ts", "export const inventory = [];\n");
       } else if (request.prompt.includes('本轮只实现模块：{"id":"checkout"')) {
@@ -828,12 +883,13 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
     expect(mocks.runStep.mock.calls.map((call) => [call[2], call[3]])).toEqual([
       ["code", "Codex：依据选题建立设计规范（不改业务代码）"],
       ["note", "设计规范：specified · 视觉验收未执行"],
-      ["code", "Codex：依据已确认需求规划依赖模块"],
+      ["code", "Codex：依据已确认需求规划功能纵切模块（含可执行冒烟）"],
       ["code", "Codex 模块：Foundation"],
+      ["check", "交付闸门 · 模块 Foundation：passed"],
       ["code", "Codex 模块：Checkout"],
-      ["check", "隔离工程检查：blocked（非业务交付验收）"],
+      ["check", "交付闸门 · 模块 Checkout：passed"],
       ["note", "设计规范：specified · 视觉验收未执行"],
-      ["note", "待用户审阅：尚未应用或验收"],
+      ["note", "待用户审阅：交付闸门 passed"],
     ]);
     const changes = mocks.propose.mock.calls[0][0].changes;
     expect(changes.map((change: { path: string }) => change.path).sort()).toEqual([
@@ -853,7 +909,7 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
         { code: "ENOENT" },
       );
     }
-    for (const index of [1, 6]) {
+    for (const index of [1, 7]) {
       const detail = await mocks.runStep.mock.results[index].value;
       expect(detail).toMatch(/^DESIGN_REPORT\n/);
       const report = JSON.parse(detail.slice("DESIGN_REPORT\n".length));
@@ -870,9 +926,7 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
         expect(artifact.sha256).toBe(createHash("sha256").update(bytes).digest("hex"));
       }
     }
-    expect(mocks.propose.mock.calls[0][0].summary).toContain(
-      "设计规范：specified；视觉验收未执行；业务验收未执行，不代表可交付",
-    );
+    expect(mocks.propose.mock.calls[0][0].summary).toContain("设计规范：specified");
     expect(checkpoint.phase).toBe("awaiting_acceptance");
   });
 
@@ -962,7 +1016,7 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
     },
   );
 
-  it("keeps the design and skill instructions in every resumed module and repair invocation", async () => {
+  it("keeps the design and skill instructions in every resumed module and in-module repair invocation", async () => {
     await prepareResume("full");
     const saved = await journal();
     saved.plan = modulePlan;
@@ -972,7 +1026,7 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
         status: "failed",
         checks: [{ name: "tests", status: "failed", output: "real checkout failure" }],
       })
-      .mockResolvedValueOnce({ status: "passed", checks: [] });
+      .mockResolvedValue(passedGate);
     let runs = 0;
     mocks.run.mockImplementation(async (request: AgentEngineTask) => {
       expectDesignPrompt(request.prompt);
@@ -982,11 +1036,12 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
     });
     await execute({ checkpoint });
     expect(mocks.run).toHaveBeenCalledTimes(3);
+    // 修复发生在 foundation 模块内部：失败的模块不会被标记完成，也不会进入下一个模块。
     expect(mocks.run.mock.calls[0][0].prompt).toContain('本轮只实现模块：{"id":"foundation"');
-    expect(mocks.run.mock.calls[1][0].prompt).toContain('本轮只实现模块：{"id":"checkout"');
-    expect(mocks.run.mock.calls[2][0].prompt).toContain("repair：每轮读取并尊重已有规范");
-    expect(mocks.run.mock.calls[2][0].prompt).toContain("不准删测试、放宽断言");
-    expect(mocks.run.mock.calls[2][0].prompt).toContain("real checkout failure");
+    expect(mocks.run.mock.calls[1][0].prompt).toContain("repair：每轮读取并尊重已有规范");
+    expect(mocks.run.mock.calls[1][0].prompt).toContain("不准删测试、放宽断言");
+    expect(mocks.run.mock.calls[1][0].prompt).toContain("real checkout failure");
+    expect(mocks.run.mock.calls[2][0].prompt).toContain('本轮只实现模块：{"id":"checkout"');
     for (const [request] of mocks.run.mock.calls) {
       expect(request.prompt).toContain("本轮参考设计文件摘要（须实际读取，不是执行证明）");
       for (const [relative, content] of Object.entries(designFiles)) {
@@ -995,12 +1050,56 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
       }
     }
     expect(mocks.run.mock.calls[0][0].prompt).toContain("已完成模块：无");
-    expect(mocks.run.mock.calls[1][0].prompt).toContain("已完成模块：foundation");
-    expect(mocks.run.mock.calls[2][0].prompt).toContain("已完成模块：foundation、checkout");
+    expect(mocks.run.mock.calls[1][0].prompt).toContain("已完成模块：无");
+    expect(mocks.run.mock.calls[2][0].prompt).toContain("已完成模块：foundation");
     expect(mocks.createCheckpoint).not.toHaveBeenCalled();
-    expect(mocks.runAcceptance).toHaveBeenCalledTimes(2);
+    expect(mocks.runAcceptance).toHaveBeenCalledTimes(3);
     expect(checkpoint.phase).toBe("awaiting_acceptance");
     expect((await journal()).done).toEqual(["foundation", "checkout"]);
+  });
+
+  it("pauses (not fails) when a module cannot pass the gate, and resumes from the gate without regenerating", async () => {
+    await seedDesign();
+    mocks.runAcceptance.mockResolvedValue({
+      status: "blocked",
+      checks: [
+        {
+          name: "stack:server:gradle",
+          status: "blocked",
+          cause: "environment",
+          output: "unsupported",
+        },
+      ],
+    });
+    mocks.run.mockImplementation(async (request: AgentEngineTask) => {
+      if (request.prompt.includes("只规划，不实现业务代码"))
+        await writeStage(".gs-codex/plan.json", JSON.stringify(modulePlan));
+      else await writeStage("foundation.ts", "export const inventory = [];\n");
+      return success;
+    });
+    await execute({ mode: "full" });
+    // 环境类阻塞：不花模型钱修复，直接暂停。
+    expect(mocks.run).toHaveBeenCalledTimes(2);
+    expect(lastTaskUpdate()).toMatchObject({ status: "paused", finishedAt: null });
+    expect(lastTaskUpdate().error).toContain("运行环境");
+    expect(mocks.propose).not.toHaveBeenCalled();
+    const saved = await journal();
+    expect(saved.done).toEqual([]);
+    expect(saved.generated).toEqual(["foundation"]);
+    // 环境修好后继续：直接从 foundation 的闸门开始，不再调用模型生成 foundation。
+    vi.clearAllMocks();
+    mocks.runAcceptance.mockResolvedValue(passedGate);
+    mocks.run.mockImplementation(async () => {
+      await writeStage("client/app.ts", "export const checkout = true;\n");
+      return success;
+    });
+    checkpoint.phase = "paused";
+    ctrl.paused = false;
+    await execute({ checkpoint });
+    expect(mocks.run).toHaveBeenCalledTimes(1);
+    expect(mocks.run.mock.calls[0][0].prompt).toContain('本轮只实现模块：{"id":"checkout"');
+    expect((await journal()).done).toEqual(["foundation", "checkout"]);
+    expect(checkpoint.phase).toBe("awaiting_acceptance");
   });
 
   it("does not impose a design gate on local backend maintenance with incidental page symptoms", async () => {
@@ -1051,22 +1150,26 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
       { ...modulePlan, modules: modulePlan.modules.map((m) => ({ ...m, dependsOn: ["missing"] })) },
       "未知模块依赖",
     ],
-  ])("rejects full plan with %s before any implementation", async (_label, plan, error) => {
-    await seedDesign();
-    mocks.run.mockImplementation(async () => {
-      await writeStage(".gs-codex/plan.json", JSON.stringify(plan));
-      return success;
-    });
-    await execute({ mode: "full" });
-    expect(mocks.run).toHaveBeenCalledTimes(1);
-    expect(mocks.propose).not.toHaveBeenCalled();
-    expect(lastTaskUpdate()).toMatchObject({
-      status: "failed",
-      error: expect.stringContaining(error as string),
-    });
-    expect(mocks.dispose).toHaveBeenCalledTimes(1);
-    expect(mocks.release).toHaveBeenCalledExactlyOnceWith(task.id);
-  });
+  ])(
+    "rejects full plan with %s before any implementation (after one corrective retry)",
+    async (_label, plan, error) => {
+      await seedDesign();
+      mocks.run.mockImplementation(async () => {
+        await writeStage(".gs-codex/plan.json", JSON.stringify(plan));
+        return success;
+      });
+      await execute({ mode: "full" });
+      expect(mocks.run).toHaveBeenCalledTimes(2);
+      expect(mocks.run.mock.calls[1][0].prompt).toContain("上一次计划未通过平台校验");
+      expect(mocks.propose).not.toHaveBeenCalled();
+      expect(lastTaskUpdate()).toMatchObject({
+        status: "failed",
+        error: expect.stringContaining(error as string),
+      });
+      expect(mocks.dispose).toHaveBeenCalledTimes(2);
+      expect(mocks.release).toHaveBeenCalledExactlyOnceWith(task.id);
+    },
+  );
 
   it("pause abort preserves baseline, partial stage and journal, and classifies paused rather than failed", async () => {
     mocks.run.mockImplementation(async () => {
@@ -1145,6 +1248,7 @@ describe("executeCodexTask orchestration (fixture filesystem, no CLI/network/mod
     await fs.writeFile(path.join(fixture, "state/journal.json"), JSON.stringify(saved));
     await writeStage("foundation.ts", "// retained completed module\n");
     checkpoint.nextStepIndex = 7;
+    mocks.runAcceptance.mockResolvedValue(passedGate);
     await execute({ checkpoint });
     expect(mocks.createCheckpoint).not.toHaveBeenCalled();
     expect(mocks.run).toHaveBeenCalledTimes(1);

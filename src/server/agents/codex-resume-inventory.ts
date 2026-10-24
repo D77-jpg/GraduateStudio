@@ -1,15 +1,32 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { assertBinaryUnchanged, type WorkspaceInventory } from "./codex-assets";
+import { assertBinaryUnchanged, isJavaBuildOutput, type WorkspaceInventory } from "./codex-assets";
 
 // These exact directories are already omitted by both inventoryWorkspace and snapshot.
-// Do not allow arbitrary suffixes (e.g. tmp/dist), descendants, or target: target is
-// currently source to those scanners and must not silently escape the text audit.
+// Do not allow arbitrary suffixes (e.g. tmp/dist) or descendants. target/.gradle are only
+// build output when a Maven/Gradle marker sits beside them; otherwise they stay source.
+const BUILD_PARENTS = ["", "client/", "frontend/", "web/", "server/", "backend/", "api/"];
 const BUILD_DIRECTORIES = new Set(
-  ["", "client/", "frontend/", "server/", "backend/"].flatMap((prefix) =>
+  BUILD_PARENTS.flatMap((prefix) =>
     ["dist", "build", ".next", "coverage"].map((name) => prefix + name),
   ),
 );
+const JAVA_BUILD_DIRECTORIES = new Set(
+  BUILD_PARENTS.flatMap((prefix) => ["target", ".gradle"].map((name) => prefix + name)),
+);
+
+async function isMarkedJavaBuildOutput(stage: string, relative: string): Promise<boolean> {
+  if (!JAVA_BUILD_DIRECTORIES.has(relative)) return false;
+  const parent = path.dirname(relative);
+  try {
+    return await isJavaBuildOutput(
+      parent === "." ? stage : path.join(stage, parent),
+      path.basename(relative),
+    );
+  } catch {
+    return false;
+  }
+}
 
 async function assertGeneratedDirectory(stage: string, relative: string): Promise<void> {
   let directory = stage;
@@ -48,7 +65,7 @@ export async function assertResumeInventoryAllowed(
     if (initialExcluded.has(relative)) continue;
     // Preserve the existing dependency exception, not a broader name/path rule.
     if (/(^|\/)node_modules$/.test(relative)) continue;
-    if (!BUILD_DIRECTORIES.has(relative))
+    if (!BUILD_DIRECTORIES.has(relative) && !(await isMarkedJavaBuildOutput(stage, relative)))
       throw new Error(`副本出现未经允许的环境、数据或依赖文件，拒绝继续：${relative}`);
     await assertGeneratedDirectory(stage, relative);
   }

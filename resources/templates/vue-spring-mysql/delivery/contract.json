@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "backend": { "service": "backend", "port": 8080, "health": "/api/health" },
+  "frontend": { "service": "frontend", "port": 80, "health": "/" },
+  "auth": {
+    "loginPath": "/api/auth/login",
+    "usernameField": "username",
+    "passwordField": "password",
+    "tokenJsonPath": "data.token",
+    "header": "Authorization",
+    "scheme": "Bearer",
+    "frontendStorage": { "type": "localStorage", "key": "token" }
+  },
+  "accounts": [
+    { "role": "admin", "username": "admin", "password": "Admin@123" },
+    { "role": "student", "username": "student", "password": "Student@123" }
+  ],
+  "smoke": [
+    { "kind": "http", "name": "管理员获取当前用户", "as": "admin", "method": "GET", "path": "/api/auth/me", "expectStatus": 200, "expectJson": { "code": 0, "data.username": "admin" } },
+    { "kind": "http", "name": "未登录访问受保护接口被拒绝", "method": "GET", "path": "/api/auth/me", "expectStatus": 401 },
+    { "kind": "http", "name": "普通用户不能发布公告", "as": "student", "method": "POST", "path": "/api/notices", "body": { "title": "越权{{rand}}", "content": "x" }, "expectStatus": 403 },
+    { "kind": "http", "name": "示例纵切：发布公告", "as": "admin", "method": "POST", "path": "/api/notices", "body": { "title": "骨架冒烟{{rand}}", "content": "交付闸门自动发布" }, "expectStatus": 200, "expectJson": { "code": 0, "data.id": "*" }, "saveAs": { "noticeId": "data.id" } },
+    { "kind": "http", "name": "示例纵切：回读公告", "as": "admin", "method": "GET", "path": "/api/notices/{{noticeId}}", "expectStatus": 200, "expectJson": { "data.title": "骨架冒烟{{rand}}" } },
+    { "kind": "page", "name": "登录页", "route": "/login", "expectText": ["登录"] },
+    { "kind": "page", "name": "首页", "as": "admin", "route": "/", "expectText": ["欢迎"] },
+    { "kind": "page", "name": "公告管理", "as": "admin", "route": "/notices", "expectText": ["公告管理"] }
+  ]
+}

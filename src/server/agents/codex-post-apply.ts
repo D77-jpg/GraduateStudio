@@ -10,8 +10,9 @@ import { loadCodexCheckpoint, saveCodexCheckpoint, type CodexCheckpoint } from "
 import { acquireCodexProjectLease } from "./codex-lease";
 import { inventoryWorkspace, assertInventoryUnchanged } from "./codex-assets";
 import { prepareCodexDependencies } from "./codex-dependencies";
-import { runCodexAcceptance, type CodexAcceptanceResult } from "./codex-acceptance";
-import { verifyCodexPythonBackend } from "./codex-python-verification";
+import { type CodexAcceptanceResult } from "./codex-acceptance";
+import { runDeliveryGate } from "./delivery-gate";
+import { validateCodexPlan, smokeScope, type CodexProjectPlan } from "./codex-plan";
 import { collectRuntimeRepairEvidence } from "../runtime/codex-runtime-diagnostics";
 import { isRuntimeRepairRequest } from "./codex-repair-policy";
 
@@ -93,8 +94,8 @@ function stepReport(report: CodexPostApplyReport) {
       checks,
       limitations: [
         "独立工程验证不代表业务功能或页面交互验收通过。",
-        "支持的 Python 后端在隔离容器中执行依赖安装、源码编译与测试；缺少测试或执行证据时不视为通过。",
-        "依赖可通过受控代理下载；项目检查在断网隔离容器的临时副本中执行，不运行模型或宿主机项目脚本。",
+        "交付闸门在临时副本上用官方工具链镜像从零安装依赖、构建并运行测试（Node / Maven / Python）；识别到但无法验证的工程记为受阻而不是通过。",
+        "存在 compose.yaml 与 delivery/contract.json 时，还会启动整套系统执行健康检查、HTTP 冒烟、重启后持久化复查与浏览器页面检查。",
         "命令或耗时未记录时显示未知，不代表检查未执行。",
       ],
     })
@@ -187,22 +188,28 @@ function sanitized<T>(value: T): T {
           "复制期间项目发生变化",
         );
         active.abort.signal.throwIfAborted();
-        currentReport.dependencies = sanitized(
-          await prepareCodexDependencies(copy, active.abort.signal),
-        );
-        active.abort.signal.throwIfAborted();
-        currentReport.acceptance = sanitized(await runCodexAcceptance(copy, active.abort.signal));
-        active.abort.signal.throwIfAborted();
-        // Python backends get real isolated dependency/test verification instead of a
-        // blanket "unsupported" block. Absent Python roots contribute no checks.
-        const python = sanitized(await verifyCodexPythonBackend(copy, active.abort.signal));
-        if (python.checks.length) {
-          // Python check names are already scoped, e.g. "server:python:tests".
-          for (const check of python.checks) currentReport.acceptance.checks.push({ ...check });
-          if (python.status === "failed") currentReport.acceptance.status = "failed";
-          else if (python.status === "blocked" && currentReport.acceptance.status !== "failed")
-            currentReport.acceptance.status = "blocked";
-        }
+        // 统一走交付闸门：按实际技术栈从零构建+测试；有 compose 与交付契约时再做运行时冒烟、
+        // 持久化复查与页面截图（旧版只跑 npm 与 Python，Java 后端完全不在验证范围内）。
+        const plan = await loadFrozenPlan(checkpoint.stage);
+        const gate = await runDeliveryGate(copy, {
+          signal: active.abort.signal,
+          tier: "auto",
+          smoke: plan ? smokeScope(plan, plan.modules.map((m) => m.id)) : undefined,
+          artifactsDir: path.join(path.dirname(checkpoint.stage), "gate-artifacts", "post-apply"),
+          label: "应用后验证",
+        });
+        const acceptance: CodexAcceptanceResult = {
+          status: gate.status,
+          checks: gate.checks.map((check) => ({
+            name: check.name,
+            status: check.status,
+            exitCode: check.exitCode,
+            command: check.command,
+            durationMs: check.durationMs,
+            output: check.output,
+          })),
+        };
+        currentReport.acceptance = acceptance;
         active.abort.signal.throwIfAborted();
         assertInventoryUnchanged(
           before,
@@ -239,7 +246,7 @@ function sanitized<T>(value: T): T {
             await saveCodexCheckpoint(checkpoint);
           }
         }
-        const statuses = [currentReport.dependencies.status, currentReport.acceptance.status];
+        const statuses = [currentReport.acceptance.status];
         currentReport.status = statuses.includes("failed")
           ? "failed"
           : statuses.includes("blocked")
@@ -334,5 +341,20 @@ function sanitized<T>(value: T): T {
     if (running.get(taskId) === active) running.delete(taskId);
     settle();
     throw error;
+  }
+}
+
+/** 读取 stage 之外冻结保存的模块计划（若该任务是完整开发）。 */
+async function loadFrozenPlan(stage: string): Promise<CodexProjectPlan | null> {
+  try {
+    const journal = JSON.parse(await fs.readFile(path.join(path.dirname(stage), "journal.json"), "utf8")) as {
+      plan?: unknown;
+    };
+    if (!journal.plan) return null;
+    const plan = journal.plan as CodexProjectPlan;
+    const featureIds = [...new Set(plan.modules.flatMap((m) => m.featureIds))];
+    return validateCodexPlan(plan, featureIds);
+  } catch {
+    return null;
   }
 }
