@@ -27,7 +27,7 @@ interface RuntimeStatus {
     ready: boolean;
     error: string | null;
     healthScope: "http" | "services";
-    stack?: "python";
+    stack?: "python" | "compose" | "java";
     services?: Array<{
       name: string;
       status: "starting" | "running" | "failed" | "stopped";
@@ -364,7 +364,11 @@ export function RuntimeView({ projectId }: { projectId: string }) {
           <span className="ml-3 text-zinc-500">
             {status.backend.healthScope === "services"
               ? "验证 MySQL、Redis、backend、worker、beat 服务健康；不代表全部业务验收通过"
-              : "仅验证 HTTP 健康；不代表数据库和全部业务验收通过"}
+              : status.backend.stack === "java"
+                ? "验证 Spring Boot /actuator/health；不代表数据库和全部业务验收通过"
+                : status.backend.stack === "compose"
+                  ? "验证 docker-compose 声明的服务已就绪；不代表业务验收通过"
+                  : "仅验证 HTTP 健康；不代表数据库和全部业务验收通过"}
           </span>
           {status.backend.services?.length ? (
             <ul aria-label="后端服务状态" className="mt-2 flex flex-wrap gap-2">

@@ -78,6 +78,15 @@ export function detectPythonStack(projectDir: string): boolean {
   return backendDirectory(projectDir) !== null;
 }
 
+// Grouping hints only: they let Docker Desktop collapse one project's containers into a
+// single group instead of a flat list. Ownership still depends exclusively on the
+// io.graduatestudio labels above, so a foreign compose project cannot claim these.
+const COMPOSE_GROUP = "com.docker.compose.project";
+
+function composeGroup(projectId: string): string {
+  return `gs-python-${pythonStackIdentity(projectId).key.slice(0, 8)}`;
+}
+
 function labelArgs(projectId: string, role: string): string[] {
   return [
     "--label",
@@ -86,6 +95,10 @@ function labelArgs(projectId: string, role: string): string[] {
     `${OWNER}.project=${pythonStackIdentity(projectId).key}`,
     "--label",
     `${OWNER}.role=${role}`,
+    "--label",
+    `${COMPOSE_GROUP}=${composeGroup(projectId)}`,
+    "--label",
+    `com.docker.compose.service=${role}`,
   ];
 }
 

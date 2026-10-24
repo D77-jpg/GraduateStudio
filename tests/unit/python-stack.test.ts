@@ -282,6 +282,10 @@ describe("Python stack isolation helpers", () => {
       `${owner}.project=${id.key}`,
       "--label",
       `${owner}.role=egress-network`,
+      "--label",
+      `com.docker.compose.project=gs-python-${id.key.slice(0, 8)}`,
+      "--label",
+      "com.docker.compose.service=egress-network",
       id.egressNetwork,
     ]);
     expect(commands).toContainEqual([
@@ -294,6 +298,10 @@ describe("Python stack isolation helpers", () => {
       `${owner}.project=${id.key}`,
       "--label",
       `${owner}.role=network`,
+      "--label",
+      `com.docker.compose.project=gs-python-${id.key.slice(0, 8)}`,
+      "--label",
+      "com.docker.compose.service=network",
       id.network,
     ]);
     for (const role of ["bootstrap", "backend", "worker", "beat"] as const) {
