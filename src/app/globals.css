@@ -87,12 +87,6 @@ select {
     text-transform: uppercase;
     color: var(--muted);
   }
-  .brand-panel {
-    border: 1px solid var(--line);
-    border-radius: 1.25rem;
-    background: var(--surface);
-    box-shadow: 0 2px 8px #00000003;
-  }
   .page-shell {
     width: 100%;
     max-width: 1440px;
@@ -104,13 +98,6 @@ select {
     max-width: 1160px;
     margin-inline: auto;
     padding-inline: 1.5rem;
-  }
-  .hero-grid {
-    background-image:
-      linear-gradient(var(--line) 1px, transparent 1px),
-      linear-gradient(90deg, var(--line) 1px, transparent 1px);
-    background-size: 48px 48px;
-    mask-image: linear-gradient(to bottom, #00000020, transparent);
   }
   .rise {
     animation: rise 0.65s cubic-bezier(0.16, 1, 0.3, 1) both;

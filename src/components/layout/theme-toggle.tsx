@@ -15,7 +15,7 @@ const snapshot = (): Theme =>
   document.documentElement.dataset.theme === "dark" ? "dark" : "light";
 const serverSnapshot = (): Theme => "light";
 
-export function ThemeToggle() {
+export function ThemeToggle({ className = "" }: { className?: string }) {
   const theme = useSyncExternalStore(subscribe, snapshot, serverSnapshot);
   const toggle = () => {
     const next = theme === "dark" ? "light" : "dark";
@@ -33,7 +33,7 @@ export function ThemeToggle() {
       onClick={toggle}
       aria-label={theme === "dark" ? "切换浅色主题" : "切换深色主题"}
       title={theme === "dark" ? "切换浅色主题" : "切换深色主题"}
-      className="flex h-9 w-9 items-center justify-center rounded-full border border-line bg-surface text-muted transition-colors hover:text-accent"
+      className={`flex h-9 w-9 items-center justify-center rounded-full border border-line bg-surface text-muted transition-colors hover:text-accent ${className}`}
     >
       <svg
         width="17"
